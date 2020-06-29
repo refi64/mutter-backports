@@ -1,0 +1,28 @@
+From 76e4b5de7a0e3661b2b2482324f2ef54779618a7 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Wed, 13 May 2020 18:06:10 +0200
+Subject: [PATCH 15/25] build: Build scaffolding for primary-selection wayland
+ protocol
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1255
+
+(cherry picked from commit 55f5177fe0381f0f2869d2a0620bc38c8e625ff9)
+---
+ src/meson.build | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/meson.build b/src/meson.build
+index 82af8bce7..c06884898 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -799,6 +799,7 @@ if have_wayland
+     ['linux-dmabuf', 'unstable', 'v1', ],
+     ['pointer-constraints', 'unstable', 'v1', ],
+     ['pointer-gestures', 'unstable', 'v1', ],
++    ['primary-selection', 'unstable', 'v1', ],
+     ['relative-pointer', 'unstable', 'v1', ],
+     ['tablet', 'unstable', 'v2', ],
+     ['text-input', 'unstable', 'v3', ],
+-- 
+2.26.2
+

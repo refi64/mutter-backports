@@ -1,0 +1,108 @@
+From d7217504171dec7f21df66858e46c5a527148d76 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Wed, 13 May 2020 16:39:44 +0200
+Subject: [PATCH 13/25] wayland: Send primary offer to all data devices from
+ the same client
+
+Make the data device track the keyboard focus, and use that list to
+forward the primary selection to all data devices from the same
+client.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1253
+
+(cherry picked from commit b45d5ef3f5a497703fd2c77b7088249cbf3ef367)
+---
+ .../meta-wayland-data-device-primary.c        | 39 ++++++++++++++++---
+ .../meta-wayland-data-device-primary.h        |  1 +
+ 2 files changed, 34 insertions(+), 6 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-data-device-primary.c b/src/wayland/meta-wayland-data-device-primary.c
+index 8326492a6..c8db576db 100644
+--- a/src/wayland/meta-wayland-data-device-primary.c
++++ b/src/wayland/meta-wayland-data-device-primary.c
+@@ -41,6 +41,30 @@
+ static struct wl_resource * create_and_send_primary_offer   (MetaWaylandDataDevicePrimary *data_device,
+                                                              struct wl_resource           *target);
+ 
++static void
++move_resources (struct wl_list *destination,
++                struct wl_list *source)
++{
++  wl_list_insert_list (destination, source);
++  wl_list_init (source);
++}
++
++static void
++move_resources_for_client (struct wl_list   *destination,
++			   struct wl_list   *source,
++			   struct wl_client *client)
++{
++  struct wl_resource *resource, *tmp;
++  wl_resource_for_each_safe (resource, tmp, source)
++    {
++      if (wl_resource_get_client (resource) == client)
++        {
++          wl_list_remove (wl_resource_get_link (resource));
++          wl_list_insert (destination, wl_resource_get_link (resource));
++        }
++    }
++}
++
+ static void
+ unbind_resource (struct wl_resource *resource)
+ {
+@@ -175,10 +199,7 @@ owner_changed_cb (MetaSelection                *selection,
+ 
+   if (selection_type == META_SELECTION_PRIMARY)
+     {
+-      data_device_resource =
+-        wl_resource_find_for_client (&data_device->resource_list,
+-                                     focus_client);
+-      if (data_device_resource)
++      wl_resource_for_each (data_device_resource, &data_device->focus_resource_list)
+         {
+           struct wl_resource *offer = NULL;
+ 
+@@ -270,6 +291,7 @@ void
+ meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_device)
+ {
+   wl_list_init (&data_device->resource_list);
++  wl_list_init (&data_device->focus_resource_list);
+ }
+ 
+ static struct wl_resource *
+@@ -312,12 +334,17 @@ meta_wayland_data_device_primary_set_keyboard_focus (MetaWaylandDataDevicePrimar
+     return;
+ 
+   data_device->focus_client = focus_client;
++  move_resources (&data_device->resource_list,
++                  &data_device->focus_resource_list);
+ 
+   if (!focus_client)
+     return;
+ 
+-  data_device_resource = wl_resource_find_for_client (&data_device->resource_list, focus_client);
+-  if (data_device_resource)
++  move_resources_for_client (&data_device->focus_resource_list,
++                             &data_device->resource_list,
++                             focus_client);
++
++  wl_resource_for_each (data_device_resource, &data_device->focus_resource_list)
+     {
+       struct wl_resource *offer;
+       offer = create_and_send_primary_offer (data_device, data_device_resource);
+diff --git a/src/wayland/meta-wayland-data-device-primary.h b/src/wayland/meta-wayland-data-device-primary.h
+index 401dae853..77fcbf97e 100644
+--- a/src/wayland/meta-wayland-data-device-primary.h
++++ b/src/wayland/meta-wayland-data-device-primary.h
+@@ -38,6 +38,7 @@ struct _MetaWaylandDataDevicePrimary
+   uint32_t serial;
+   MetaWaylandDataSource *data_source;
+   struct wl_list resource_list;
++  struct wl_list focus_resource_list;
+   struct wl_client *focus_client;
+ 
+   guint selection_owner_signal_id;
+-- 
+2.26.2
+

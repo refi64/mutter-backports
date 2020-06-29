@@ -1,0 +1,120 @@
+From 78248d8dd3226cc79d57da3c10ef1eeb71126c7a Mon Sep 17 00:00:00 2001
+From: Robert Mader <robert.mader@posteo.de>
+Date: Wed, 24 Jun 2020 21:29:14 +0200
+Subject: [PATCH 05/25] Revert "wayland: Send clipboard offers to all data
+ devices from the same client"
+
+This reverts commit 36f5a0a491c92c41ff7526390d09d1b61780c8c7.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1330
+---
+ src/wayland/meta-wayland-data-device.c | 46 ++++----------------------
+ src/wayland/meta-wayland-data-device.h |  1 -
+ 2 files changed, 6 insertions(+), 41 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-data-device.c b/src/wayland/meta-wayland-data-device.c
+index 37f23e7b3..fb5992ea0 100644
+--- a/src/wayland/meta-wayland-data-device.c
++++ b/src/wayland/meta-wayland-data-device.c
+@@ -108,30 +108,6 @@ static struct wl_resource * create_and_send_primary_offer   (MetaWaylandDataDevi
+                                                              struct wl_resource    *target);
+ static struct wl_resource * meta_wayland_data_source_get_resource (MetaWaylandDataSource *source);
+ 
+-static void
+-move_resources (struct wl_list *destination,
+-                struct wl_list *source)
+-{
+-  wl_list_insert_list (destination, source);
+-  wl_list_init (source);
+-}
+-
+-static void
+-move_resources_for_client (struct wl_list   *destination,
+-			   struct wl_list   *source,
+-			   struct wl_client *client)
+-{
+-  struct wl_resource *resource, *tmp;
+-  wl_resource_for_each_safe (resource, tmp, source)
+-    {
+-      if (wl_resource_get_client (resource) == client)
+-        {
+-          wl_list_remove (wl_resource_get_link (resource));
+-          wl_list_insert (destination, wl_resource_get_link (resource));
+-        }
+-    }
+-}
+-
+ static void
+ unbind_resource (struct wl_resource *resource)
+ {
+@@ -925,12 +901,6 @@ meta_wayland_drag_grab_set_focus (MetaWaylandDragGrab *drag_grab,
+   client = wl_resource_get_client (surface->resource);
+ 
+   data_device_resource = wl_resource_find_for_client (&seat->data_device.resource_list, client);
+-  if (!data_device_resource)
+-    {
+-      data_device_resource =
+-        wl_resource_find_for_client (&seat->data_device.focus_resource_list,
+-                                     client);
+-    }
+ 
+   if (source && data_device_resource)
+     offer = create_and_send_dnd_offer (source, data_device_resource);
+@@ -1890,7 +1860,10 @@ owner_changed_cb (MetaSelection         *selection,
+     }
+   else if (selection_type == META_SELECTION_CLIPBOARD)
+     {
+-      wl_resource_for_each (data_device_resource, &data_device->focus_resource_list)
++      data_device_resource =
++        wl_resource_find_for_client (&data_device->resource_list, focus_client);
++
++      if (data_device_resource)
+         {
+           struct wl_resource *offer = NULL;
+ 
+@@ -2025,7 +1998,6 @@ void
+ meta_wayland_data_device_init (MetaWaylandDataDevice *data_device)
+ {
+   wl_list_init (&data_device->resource_list);
+-  wl_list_init (&data_device->focus_resource_list);
+   wl_list_init (&data_device->primary_resource_list);
+ }
+ 
+@@ -2108,20 +2080,14 @@ meta_wayland_data_device_set_keyboard_focus (MetaWaylandDataDevice *data_device)
+     return;
+ 
+   data_device->focus_client = focus_client;
+-  move_resources (&data_device->resource_list,
+-                  &data_device->focus_resource_list);
+ 
+   if (!focus_client)
+     return;
+ 
+-  move_resources_for_client (&data_device->focus_resource_list,
+-                             &data_device->resource_list,
+-                             focus_client);
+-
+-  wl_resource_for_each (data_device_resource, &data_device->focus_resource_list)
++  data_device_resource = wl_resource_find_for_client (&data_device->resource_list, focus_client);
++  if (data_device_resource)
+     {
+       struct wl_resource *offer;
+-
+       offer = create_and_send_clipboard_offer (data_device, data_device_resource);
+       wl_data_device_send_selection (data_device_resource, offer);
+     }
+diff --git a/src/wayland/meta-wayland-data-device.h b/src/wayland/meta-wayland-data-device.h
+index 7ebaca326..027dafc54 100644
+--- a/src/wayland/meta-wayland-data-device.h
++++ b/src/wayland/meta-wayland-data-device.h
+@@ -63,7 +63,6 @@ struct _MetaWaylandDataDevice
+   MetaWaylandDataSource *primary_data_source;
+   struct wl_listener selection_data_source_listener;
+   struct wl_list resource_list;
+-  struct wl_list focus_resource_list;
+   struct wl_list primary_resource_list;
+   MetaWaylandDragGrab *current_grab;
+   struct wl_client *focus_client;
+-- 
+2.26.2
+

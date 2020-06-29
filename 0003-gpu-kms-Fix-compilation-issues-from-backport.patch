@@ -1,0 +1,31 @@
+From 1f896c9735df41ecd0183a0788530e73320d9e29 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
+Date: Tue, 23 Jun 2020 16:25:51 +0200
+Subject: [PATCH 03/25] gpu-kms: Fix compilation issues from backport
+
+The backport applied cleanly, but didn't build as function type
+signatures called changed. This fixes the compilation issues.
+---
+ src/backends/native/meta-gpu-kms.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/backends/native/meta-gpu-kms.c b/src/backends/native/meta-gpu-kms.c
+index 061fb01fc..a475933ad 100644
+--- a/src/backends/native/meta-gpu-kms.c
++++ b/src/backends/native/meta-gpu-kms.c
+@@ -247,10 +247,10 @@ meta_gpu_kms_set_power_save_mode (MetaGpuKms    *gpu_kms,
+       /* Turn off CRTCs for DPMS */
+       for (l = meta_gpu_get_crtcs (gpu); l; l = l->next)
+         {
+-          MetaCrtcKms *crtc_kms = META_CRTC_KMS (l->data);
++          MetaCrtc *crtc = META_CRTC (l->data);
+ 
+           meta_kms_update_mode_set (kms_update,
+-                                    meta_crtc_kms_get_kms_crtc (crtc_kms),
++                                    meta_crtc_kms_get_kms_crtc (crtc),
+                                     NULL, NULL);
+         }
+     }
+-- 
+2.26.2
+

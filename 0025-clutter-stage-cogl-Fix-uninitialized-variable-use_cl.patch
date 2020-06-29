@@ -1,0 +1,47 @@
+From d555d1f9f8f4df51cab188bfdbdfc6f2d10e6e91 Mon Sep 17 00:00:00 2001
+From: Daniel van Vugt <daniel.van.vugt@canonical.com>
+Date: Fri, 19 Jun 2020 15:34:59 +0800
+Subject: [PATCH 25/25] clutter-stage-cogl: Fix uninitialized variable
+ `use_clipped_redraw`
+
+I noticed my system would fall back to the slow unclipped (and
+uncullable) paint path whenever a window touched the left edge of
+the screen. Turns out that was a red herring. Just that
+`use_clipped_redraw` was uninitialized so clipping/culling was used
+randomly.
+
+So the compiler failed to notice `use_clipped_redraw` was uninitialized.
+Weirdly, as soon as you fix that it starts complaining that `buffer_age`
+might be uninitialized, which appears to be wrong. So we initialize that
+too, to shut up the compiler warnings/errors.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1323
+---
+ clutter/clutter/cogl/clutter-stage-cogl.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/clutter/clutter/cogl/clutter-stage-cogl.c b/clutter/clutter/cogl/clutter-stage-cogl.c
+index 9031f5291..5df41ad1c 100644
+--- a/clutter/clutter/cogl/clutter-stage-cogl.c
++++ b/clutter/clutter/cogl/clutter-stage-cogl.c
+@@ -637,7 +637,7 @@ clutter_stage_cogl_redraw_view (ClutterStageWindow *stage_window,
+   cairo_rectangle_int_t view_rect;
+   gboolean is_full_redraw;
+   gboolean may_use_clipped_redraw;
+-  gboolean use_clipped_redraw;
++  gboolean use_clipped_redraw = TRUE;
+   gboolean can_blit_sub_buffer;
+   gboolean has_buffer_age;
+   gboolean do_swap_buffer;
+@@ -652,7 +652,7 @@ clutter_stage_cogl_redraw_view (ClutterStageWindow *stage_window,
+   float fb_scale;
+   int subpixel_compensation = 0;
+   int fb_width, fb_height;
+-  int buffer_age;
++  int buffer_age = 0;
+ 
+   wrapper = CLUTTER_ACTOR (stage_cogl->wrapper);
+ 
+-- 
+2.26.2
+

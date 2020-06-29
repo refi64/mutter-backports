@@ -1,0 +1,535 @@
+From 9acb8236035f07262092b6e39c7eef0ecd13cb78 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Wed, 13 May 2020 18:04:04 +0200
+Subject: [PATCH 14/25] wayland: Rename gtk primary protocol files to "legacy"
+
+We want to make room for the wayland-protocols primary selection
+protocol. Rename our private protocol as "legacy".
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1255
+
+(cherry picked from commit 037b68ab8eeb462ad3715c30642f57124794f7b2)
+---
+ src/meson.build                               | 12 ++--
+ ...meta-wayland-data-device-primary-legacy.c} | 67 ++++++++++---------
+ ...meta-wayland-data-device-primary-legacy.h} | 14 ++--
+ ... meta-wayland-data-offer-primary-legacy.c} |  4 +-
+ ... meta-wayland-data-offer-primary-legacy.h} |  8 +--
+ ...meta-wayland-data-source-primary-legacy.c} | 28 ++++----
+ ...meta-wayland-data-source-primary-legacy.h} | 10 +--
+ src/wayland/meta-wayland-seat.c               |  6 +-
+ src/wayland/meta-wayland-seat.h               |  4 +-
+ src/wayland/meta-wayland-types.h              |  2 +-
+ src/wayland/meta-wayland.c                    |  2 +-
+ 11 files changed, 79 insertions(+), 78 deletions(-)
+ rename src/wayland/{meta-wayland-data-device-primary.c => meta-wayland-data-device-primary-legacy.c} (80%)
+ rename src/wayland/{meta-wayland-data-device-primary.h => meta-wayland-data-device-primary-legacy.h} (77%)
+ rename src/wayland/{meta-wayland-data-offer-primary.c => meta-wayland-data-offer-primary-legacy.c} (97%)
+ rename src/wayland/{meta-wayland-data-offer-primary.h => meta-wayland-data-offer-primary-legacy.h} (83%)
+ rename src/wayland/{meta-wayland-data-source-primary.c => meta-wayland-data-source-primary-legacy.c} (74%)
+ rename src/wayland/{meta-wayland-data-source-primary.h => meta-wayland-data-source-primary-legacy.h} (78%)
+
+diff --git a/src/meson.build b/src/meson.build
+index 6653780e1..82af8bce7 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -495,16 +495,16 @@ if have_wayland
+     'wayland/meta-wayland-cursor-surface.h',
+     'wayland/meta-wayland-data-device.c',
+     'wayland/meta-wayland-data-device.h',
+-    'wayland/meta-wayland-data-device-primary.c',
+-    'wayland/meta-wayland-data-device-primary.h',
++    'wayland/meta-wayland-data-device-primary-legacy.c',
++    'wayland/meta-wayland-data-device-primary-legacy.h',
+     'wayland/meta-wayland-data-offer.c',
+     'wayland/meta-wayland-data-offer.h',
+-    'wayland/meta-wayland-data-offer-primary.c',
+-    'wayland/meta-wayland-data-offer-primary.h',
++    'wayland/meta-wayland-data-offer-primary-legacy.c',
++    'wayland/meta-wayland-data-offer-primary-legacy.h',
+     'wayland/meta-wayland-data-source.c',
+     'wayland/meta-wayland-data-source.h',
+-    'wayland/meta-wayland-data-source-primary.c',
+-    'wayland/meta-wayland-data-source-primary.h',
++    'wayland/meta-wayland-data-source-primary-legacy.c',
++    'wayland/meta-wayland-data-source-primary-legacy.h',
+     'wayland/meta-wayland-dma-buf.c',
+     'wayland/meta-wayland-dma-buf.h',
+     'wayland/meta-wayland-dnd-surface.c',
+diff --git a/src/wayland/meta-wayland-data-device-primary.c b/src/wayland/meta-wayland-data-device-primary-legacy.c
+similarity index 80%
+rename from src/wayland/meta-wayland-data-device-primary.c
+rename to src/wayland/meta-wayland-data-device-primary-legacy.c
+index c8db576db..2c5304c5f 100644
+--- a/src/wayland/meta-wayland-data-device-primary.c
++++ b/src/wayland/meta-wayland-data-device-primary-legacy.c
+@@ -24,13 +24,13 @@
+ 
+ #include "config.h"
+ 
+-#include "wayland/meta-wayland-data-device-primary.h"
++#include "wayland/meta-wayland-data-device-primary-legacy.h"
+ 
+ #include "compositor/meta-dnd-actor-private.h"
+ #include "meta/meta-selection-source-memory.h"
+ #include "wayland/meta-selection-source-wayland-private.h"
+-#include "wayland/meta-wayland-data-offer-primary.h"
+-#include "wayland/meta-wayland-data-source-primary.h"
++#include "wayland/meta-wayland-data-offer-primary-legacy.h"
++#include "wayland/meta-wayland-data-source-primary-legacy.h"
+ #include "wayland/meta-wayland-dnd-surface.h"
+ #include "wayland/meta-wayland-pointer.h"
+ #include "wayland/meta-wayland-private.h"
+@@ -38,8 +38,8 @@
+ 
+ #include "gtk-primary-selection-server-protocol.h"
+ 
+-static struct wl_resource * create_and_send_primary_offer   (MetaWaylandDataDevicePrimary *data_device,
+-                                                             struct wl_resource           *target);
++static struct wl_resource * create_and_send_primary_offer (MetaWaylandDataDevicePrimaryLegacy *data_device,
++                                                           struct wl_resource                 *target);
+ 
+ static void
+ move_resources (struct wl_list *destination,
+@@ -79,8 +79,8 @@ default_destructor (struct wl_client   *client,
+ }
+ 
+ static void
+-set_selection_source (MetaWaylandDataDevicePrimary *data_device,
+-                      MetaSelectionSource          *selection_source)
++set_selection_source (MetaWaylandDataDevicePrimaryLegacy *data_device,
++                      MetaSelectionSource                *selection_source)
+ 
+ {
+   MetaDisplay *display = meta_get_display ();
+@@ -92,7 +92,7 @@ set_selection_source (MetaWaylandDataDevicePrimary *data_device,
+ }
+ 
+ static void
+-unset_selection_source (MetaWaylandDataDevicePrimary *data_device)
++unset_selection_source (MetaWaylandDataDevicePrimaryLegacy *data_device)
+ {
+   MetaDisplay *display = meta_get_display ();
+ 
+@@ -109,21 +109,21 @@ static void
+ primary_source_destroyed (gpointer  data,
+                           GObject  *object_was_here)
+ {
+-  MetaWaylandDataDevicePrimary *data_device = data;
++  MetaWaylandDataDevicePrimaryLegacy *data_device = data;
+ 
+   data_device->data_source = NULL;
+   unset_selection_source (data_device);
+ }
+ 
+ static void
+-meta_wayland_data_device_primary_set_selection (MetaWaylandDataDevicePrimary *data_device,
+-                                                MetaWaylandDataSource        *source,
+-                                                uint32_t                      serial)
++meta_wayland_data_device_primary_legacy_set_selection (MetaWaylandDataDevicePrimaryLegacy *data_device,
++                                                       MetaWaylandDataSource              *source,
++                                                       uint32_t                            serial)
+ {
+-  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_data_device);
++  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_legacy_data_device);
+   MetaSelectionSource *selection_source;
+ 
+-  g_assert (!source || META_IS_WAYLAND_DATA_SOURCE_PRIMARY (source));
++  g_assert (!source || META_IS_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY (source));
+ 
+   if (data_device->data_source &&
+       data_device->serial - serial < UINT32_MAX / 2)
+@@ -163,8 +163,8 @@ primary_device_set_selection (struct wl_client   *client,
+                               struct wl_resource *source_resource,
+                               uint32_t            serial)
+ {
+-  MetaWaylandDataDevicePrimary *data_device = wl_resource_get_user_data (resource);
+-  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_data_device);
++  MetaWaylandDataDevicePrimaryLegacy *data_device = wl_resource_get_user_data (resource);
++  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_legacy_data_device);
+   MetaWaylandDataSource *source = NULL;
+ 
+   if (source_resource)
+@@ -174,7 +174,7 @@ primary_device_set_selection (struct wl_client   *client,
+       meta_wayland_keyboard_get_focus_client (seat->keyboard))
+     return;
+ 
+-  meta_wayland_data_device_primary_set_selection (data_device, source, serial);
++  meta_wayland_data_device_primary_legacy_set_selection (data_device, source, serial);
+ }
+ 
+ static const struct gtk_primary_selection_device_interface primary_device_interface = {
+@@ -183,10 +183,10 @@ static const struct gtk_primary_selection_device_interface primary_device_interf
+ };
+ 
+ static void
+-owner_changed_cb (MetaSelection                *selection,
+-                  MetaSelectionType             selection_type,
+-                  MetaSelectionSource          *new_owner,
+-                  MetaWaylandDataDevicePrimary *data_device)
++owner_changed_cb (MetaSelection                      *selection,
++                  MetaSelectionType                   selection_type,
++                  MetaSelectionSource                *new_owner,
++                  MetaWaylandDataDevicePrimaryLegacy *data_device)
+ {
+   MetaWaylandCompositor *compositor = meta_wayland_compositor_get_default ();
+   MetaWaylandSeat *seat = compositor->seat;
+@@ -216,7 +216,7 @@ owner_changed_cb (MetaSelection                *selection,
+ }
+ 
+ static void
+-ensure_owners_changed_handler_connected (MetaWaylandDataDevicePrimary *data_device)
++ensure_owners_changed_handler_connected (MetaWaylandDataDevicePrimaryLegacy *data_device)
+ {
+   if (data_device->selection_owner_signal_id != 0)
+     return;
+@@ -238,7 +238,7 @@ primary_device_manager_create_source (struct wl_client   *client,
+     wl_resource_create (client, &gtk_primary_selection_source_interface,
+                         wl_resource_get_version (manager_resource),
+                         id);
+-  meta_wayland_data_source_primary_new (source_resource);
++  meta_wayland_data_source_primary_legacy_new (source_resource);
+ }
+ 
+ static void
+@@ -253,10 +253,11 @@ primary_device_manager_get_device (struct wl_client   *client,
+   cr = wl_resource_create (client, &gtk_primary_selection_device_interface,
+                            wl_resource_get_version (manager_resource), id);
+   wl_resource_set_implementation (cr, &primary_device_interface,
+-                                  &seat->primary_data_device, unbind_resource);
+-  wl_list_insert (&seat->primary_data_device.resource_list, wl_resource_get_link (cr));
++                                  &seat->primary_legacy_data_device, unbind_resource);
++  wl_list_insert (&seat->primary_legacy_data_device.resource_list,
++                  wl_resource_get_link (cr));
+ 
+-  ensure_owners_changed_handler_connected (&seat->primary_data_device);
++  ensure_owners_changed_handler_connected (&seat->primary_legacy_data_device);
+ }
+ 
+ static const struct gtk_primary_selection_device_manager_interface primary_manager_interface = {
+@@ -279,7 +280,7 @@ bind_primary_manager (struct wl_client *client,
+ }
+ 
+ void
+-meta_wayland_data_device_primary_manager_init (MetaWaylandCompositor *compositor)
++meta_wayland_data_device_primary_legacy_manager_init (MetaWaylandCompositor *compositor)
+ {
+   if (wl_global_create (compositor->wayland_display,
+ 			&gtk_primary_selection_device_manager_interface,
+@@ -288,15 +289,15 @@ meta_wayland_data_device_primary_manager_init (MetaWaylandCompositor *compositor
+ }
+ 
+ void
+-meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_device)
++meta_wayland_data_device_primary_legacy_init (MetaWaylandDataDevicePrimaryLegacy *data_device)
+ {
+   wl_list_init (&data_device->resource_list);
+   wl_list_init (&data_device->focus_resource_list);
+ }
+ 
+ static struct wl_resource *
+-create_and_send_primary_offer (MetaWaylandDataDevicePrimary *data_device,
+-                               struct wl_resource           *target)
++create_and_send_primary_offer (MetaWaylandDataDevicePrimaryLegacy *data_device,
++                               struct wl_resource                 *target)
+ {
+   MetaWaylandDataOffer *offer;
+   MetaDisplay *display = meta_get_display ();
+@@ -308,7 +309,7 @@ create_and_send_primary_offer (MetaWaylandDataDevicePrimary *data_device,
+   if (!mimetypes)
+     return NULL;
+ 
+-  offer = meta_wayland_data_offer_primary_new (target);
++  offer = meta_wayland_data_offer_primary_legacy_new (target);
+   resource = meta_wayland_data_offer_get_resource (offer);
+ 
+   gtk_primary_selection_device_send_data_offer (target, resource);
+@@ -322,9 +323,9 @@ create_and_send_primary_offer (MetaWaylandDataDevicePrimary *data_device,
+ }
+ 
+ void
+-meta_wayland_data_device_primary_set_keyboard_focus (MetaWaylandDataDevicePrimary *data_device)
++meta_wayland_data_device_primary_legacy_set_keyboard_focus (MetaWaylandDataDevicePrimaryLegacy *data_device)
+ {
+-  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_data_device);
++  MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_legacy_data_device);
+   struct wl_client *focus_client;
+   struct wl_resource *data_device_resource;
+ 
+diff --git a/src/wayland/meta-wayland-data-device-primary.h b/src/wayland/meta-wayland-data-device-primary-legacy.h
+similarity index 77%
+rename from src/wayland/meta-wayland-data-device-primary.h
+rename to src/wayland/meta-wayland-data-device-primary-legacy.h
+index 77fcbf97e..c1b4d6e99 100644
+--- a/src/wayland/meta-wayland-data-device-primary.h
++++ b/src/wayland/meta-wayland-data-device-primary-legacy.h
+@@ -21,8 +21,8 @@
+  * OF THIS SOFTWARE.
+  */
+ 
+-#ifndef META_WAYLAND_DATA_DEVICE_PRIMARY_H
+-#define META_WAYLAND_DATA_DEVICE_PRIMARY_H
++#ifndef META_WAYLAND_DATA_DEVICE_PRIMARY_LEGACY_H
++#define META_WAYLAND_DATA_DEVICE_PRIMARY_LEGACY_H
+ 
+ #include <glib-object.h>
+ #include <wayland-server.h>
+@@ -33,7 +33,7 @@
+ #include "wayland/meta-wayland-data-source.h"
+ #include "wayland/meta-wayland-types.h"
+ 
+-struct _MetaWaylandDataDevicePrimary
++struct _MetaWaylandDataDevicePrimaryLegacy
+ {
+   uint32_t serial;
+   MetaWaylandDataSource *data_source;
+@@ -46,10 +46,10 @@ struct _MetaWaylandDataDevicePrimary
+   MetaSelectionSource *owner;
+ };
+ 
+-void meta_wayland_data_device_primary_manager_init (MetaWaylandCompositor *compositor);
++void meta_wayland_data_device_primary_legacy_manager_init (MetaWaylandCompositor *compositor);
+ 
+-void meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_device);
++void meta_wayland_data_device_primary_legacy_init (MetaWaylandDataDevicePrimaryLegacy *data_device);
+ 
+-void meta_wayland_data_device_primary_set_keyboard_focus (MetaWaylandDataDevicePrimary *data_device);
++void meta_wayland_data_device_primary_legacy_set_keyboard_focus (MetaWaylandDataDevicePrimaryLegacy *data_device);
+ 
+-#endif /* META_WAYLAND_DATA_DEVICE_PRIMARY_H */
++#endif /* META_WAYLAND_DATA_DEVICE_PRIMARY_LEGACY_H */
+diff --git a/src/wayland/meta-wayland-data-offer-primary.c b/src/wayland/meta-wayland-data-offer-primary-legacy.c
+similarity index 97%
+rename from src/wayland/meta-wayland-data-offer-primary.c
+rename to src/wayland/meta-wayland-data-offer-primary-legacy.c
+index 8da1e29fb..ae55a9edc 100644
+--- a/src/wayland/meta-wayland-data-offer-primary.c
++++ b/src/wayland/meta-wayland-data-offer-primary-legacy.c
+@@ -23,7 +23,7 @@
+ 
+ #include "config.h"
+ 
+-#include "meta-wayland-data-offer-primary.h"
++#include "meta-wayland-data-offer-primary-legacy.h"
+ 
+ #include <gio/gunixoutputstream.h>
+ #include <glib-unix.h>
+@@ -121,7 +121,7 @@ destroy_primary_offer (struct wl_resource *resource)
+ }
+ 
+ MetaWaylandDataOffer *
+-meta_wayland_data_offer_primary_new (struct wl_resource *target)
++meta_wayland_data_offer_primary_legacy_new (struct wl_resource *target)
+ {
+   MetaWaylandDataOffer *offer;
+ 
+diff --git a/src/wayland/meta-wayland-data-offer-primary.h b/src/wayland/meta-wayland-data-offer-primary-legacy.h
+similarity index 83%
+rename from src/wayland/meta-wayland-data-offer-primary.h
+rename to src/wayland/meta-wayland-data-offer-primary-legacy.h
+index cf59fb5c7..96a32c34e 100644
+--- a/src/wayland/meta-wayland-data-offer-primary.h
++++ b/src/wayland/meta-wayland-data-offer-primary-legacy.h
+@@ -21,11 +21,11 @@
+  * OF THIS SOFTWARE.
+  */
+ 
+-#ifndef META_WAYLAND_DATA_OFFER_PRIMARY_H
+-#define META_WAYLAND_DATA_OFFER_PRIMARY_H
++#ifndef META_WAYLAND_DATA_OFFER_PRIMARY_LEGACY_H
++#define META_WAYLAND_DATA_OFFER_PRIMARY_LEGACY_H
+ 
+ #include "meta-wayland-data-offer.h"
+ 
+-MetaWaylandDataOffer * meta_wayland_data_offer_primary_new (struct wl_resource *target);
++MetaWaylandDataOffer * meta_wayland_data_offer_primary_legacy_new (struct wl_resource *target);
+ 
+-#endif /* META_WAYLAND_DATA_OFFER_PRIMARY_H */
++#endif /* META_WAYLAND_DATA_OFFER_PRIMARY_LEGACY_H */
+diff --git a/src/wayland/meta-wayland-data-source-primary.c b/src/wayland/meta-wayland-data-source-primary-legacy.c
+similarity index 74%
+rename from src/wayland/meta-wayland-data-source-primary.c
+rename to src/wayland/meta-wayland-data-source-primary-legacy.c
+index 3d088d63a..a7a1788ae 100644
+--- a/src/wayland/meta-wayland-data-source-primary.c
++++ b/src/wayland/meta-wayland-data-source-primary-legacy.c
+@@ -26,14 +26,14 @@
+ #include <unistd.h>
+ 
+ #include "gtk-primary-selection-server-protocol.h"
+-#include "wayland/meta-wayland-data-source-primary.h"
++#include "wayland/meta-wayland-data-source-primary-legacy.h"
+ 
+-typedef struct _MetaWaylandDataSourcePrimary
++typedef struct _MetaWaylandDataSourcePrimaryLegacy
+ {
+   MetaWaylandDataSource parent;
+-} MetaWaylandDataSourcePrimary;
++} MetaWaylandDataSourcePrimaryLegacy;
+ 
+-G_DEFINE_TYPE (MetaWaylandDataSourcePrimary, meta_wayland_data_source_primary,
++G_DEFINE_TYPE (MetaWaylandDataSourcePrimaryLegacy, meta_wayland_data_source_primary_legacy,
+                META_TYPE_WAYLAND_DATA_SOURCE);
+ 
+ static void
+@@ -69,9 +69,9 @@ destroy_primary_source (struct wl_resource *resource)
+ }
+ 
+ static void
+-meta_wayland_data_source_primary_send (MetaWaylandDataSource *source,
+-                                       const gchar           *mime_type,
+-                                       gint                   fd)
++meta_wayland_data_source_primary_legacy_send (MetaWaylandDataSource *source,
++                                              const gchar           *mime_type,
++                                              gint                   fd)
+ {
+   struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
+ 
+@@ -80,7 +80,7 @@ meta_wayland_data_source_primary_send (MetaWaylandDataSource *source,
+ }
+ 
+ static void
+-meta_wayland_data_source_primary_cancel (MetaWaylandDataSource *source)
++meta_wayland_data_source_primary_legacy_cancel (MetaWaylandDataSource *source)
+ {
+   struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
+ 
+@@ -89,25 +89,25 @@ meta_wayland_data_source_primary_cancel (MetaWaylandDataSource *source)
+ }
+ 
+ static void
+-meta_wayland_data_source_primary_init (MetaWaylandDataSourcePrimary *source_primary)
++meta_wayland_data_source_primary_legacy_init (MetaWaylandDataSourcePrimaryLegacy *source_primary)
+ {
+ }
+ 
+ static void
+-meta_wayland_data_source_primary_class_init (MetaWaylandDataSourcePrimaryClass *klass)
++meta_wayland_data_source_primary_legacy_class_init (MetaWaylandDataSourcePrimaryLegacyClass *klass)
+ {
+   MetaWaylandDataSourceClass *data_source_class =
+     META_WAYLAND_DATA_SOURCE_CLASS (klass);
+ 
+-  data_source_class->send = meta_wayland_data_source_primary_send;
+-  data_source_class->cancel = meta_wayland_data_source_primary_cancel;
++  data_source_class->send = meta_wayland_data_source_primary_legacy_send;
++  data_source_class->cancel = meta_wayland_data_source_primary_legacy_cancel;
+ }
+ 
+ MetaWaylandDataSource *
+-meta_wayland_data_source_primary_new (struct wl_resource *resource)
++meta_wayland_data_source_primary_legacy_new (struct wl_resource *resource)
+ {
+   MetaWaylandDataSource *source_primary =
+-    g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY, NULL);
++    g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY, NULL);
+ 
+   meta_wayland_data_source_set_resource (source_primary, resource);
+   wl_resource_set_implementation (resource, &primary_source_interface,
+diff --git a/src/wayland/meta-wayland-data-source-primary.h b/src/wayland/meta-wayland-data-source-primary-legacy.h
+similarity index 78%
+rename from src/wayland/meta-wayland-data-source-primary.h
+rename to src/wayland/meta-wayland-data-source-primary-legacy.h
+index c6dd61bdb..2904807c8 100644
+--- a/src/wayland/meta-wayland-data-source-primary.h
++++ b/src/wayland/meta-wayland-data-source-primary-legacy.h
+@@ -26,12 +26,12 @@
+ 
+ #include "meta-wayland-data-source.h"
+ 
+-#define META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY (meta_wayland_data_source_primary_get_type ())
+-G_DECLARE_FINAL_TYPE (MetaWaylandDataSourcePrimary,
+-                      meta_wayland_data_source_primary,
+-                      META, WAYLAND_DATA_SOURCE_PRIMARY,
++#define META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY (meta_wayland_data_source_primary_legacy_get_type ())
++G_DECLARE_FINAL_TYPE (MetaWaylandDataSourcePrimaryLegacy,
++                      meta_wayland_data_source_primary_legacy,
++                      META, WAYLAND_DATA_SOURCE_PRIMARY_LEGACY,
+                       MetaWaylandDataSource);
+ 
+-MetaWaylandDataSource * meta_wayland_data_source_primary_new (struct wl_resource *resource);
++MetaWaylandDataSource * meta_wayland_data_source_primary_legacy_new (struct wl_resource *resource);
+ 
+ #endif /* META_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY_H */
+diff --git a/src/wayland/meta-wayland-seat.c b/src/wayland/meta-wayland-seat.c
+index ca243d56e..2c2c3caf0 100644
+--- a/src/wayland/meta-wayland-seat.c
++++ b/src/wayland/meta-wayland-seat.c
+@@ -24,7 +24,7 @@
+ #include "wayland/meta-wayland-seat.h"
+ 
+ #include "wayland/meta-wayland-data-device.h"
+-#include "wayland/meta-wayland-data-device-primary.h"
++#include "wayland/meta-wayland-data-device-primary-legacy.h"
+ #include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-tablet-seat.h"
+ #include "wayland/meta-wayland-versions.h"
+@@ -232,7 +232,7 @@ meta_wayland_seat_new (MetaWaylandCompositor *compositor,
+   seat->gtk_text_input = meta_wayland_gtk_text_input_new (seat);
+ 
+   meta_wayland_data_device_init (&seat->data_device);
+-  meta_wayland_data_device_primary_init (&seat->primary_data_device);
++  meta_wayland_data_device_primary_legacy_init (&seat->primary_legacy_data_device);
+ 
+   clutter_seat = clutter_backend_get_default_seat (clutter_get_default_backend ());
+   meta_wayland_seat_update_capabilities (seat, clutter_seat);
+@@ -433,7 +433,7 @@ meta_wayland_seat_set_input_focus (MetaWaylandSeat    *seat,
+     {
+       meta_wayland_keyboard_set_focus (seat->keyboard, surface);
+       meta_wayland_data_device_set_keyboard_focus (&seat->data_device);
+-      meta_wayland_data_device_primary_set_keyboard_focus (&seat->primary_data_device);
++      meta_wayland_data_device_primary_legacy_set_keyboard_focus (&seat->primary_legacy_data_device);
+     }
+ 
+   tablet_seat = meta_wayland_tablet_manager_ensure_seat (compositor->tablet_manager, seat);
+diff --git a/src/wayland/meta-wayland-seat.h b/src/wayland/meta-wayland-seat.h
+index d9be100af..885ecd46a 100644
+--- a/src/wayland/meta-wayland-seat.h
++++ b/src/wayland/meta-wayland-seat.h
+@@ -26,7 +26,7 @@
+ 
+ #include "clutter/clutter.h"
+ #include "wayland/meta-wayland-data-device.h"
+-#include "wayland/meta-wayland-data-device-primary.h"
++#include "wayland/meta-wayland-data-device-primary-legacy.h"
+ #include "wayland/meta-wayland-input-device.h"
+ #include "wayland/meta-wayland-keyboard.h"
+ #include "wayland/meta-wayland-pointer.h"
+@@ -46,7 +46,7 @@ struct _MetaWaylandSeat
+   MetaWaylandTouch *touch;
+ 
+   MetaWaylandDataDevice data_device;
+-  MetaWaylandDataDevicePrimary primary_data_device;
++  MetaWaylandDataDevicePrimaryLegacy primary_legacy_data_device;
+ 
+   MetaWaylandGtkTextInput *gtk_text_input;
+   MetaWaylandTextInput *text_input;
+diff --git a/src/wayland/meta-wayland-types.h b/src/wayland/meta-wayland-types.h
+index 23d066d56..29ce9aa99 100644
+--- a/src/wayland/meta-wayland-types.h
++++ b/src/wayland/meta-wayland-types.h
+@@ -37,7 +37,7 @@ typedef struct _MetaWaylandTouch MetaWaylandTouch;
+ typedef struct _MetaWaylandDragDestFuncs MetaWaylandDragDestFuncs;
+ typedef struct _MetaWaylandDataOffer MetaWaylandDataOffer;
+ typedef struct _MetaWaylandDataDevice MetaWaylandDataDevice;
+-typedef struct _MetaWaylandDataDevicePrimary MetaWaylandDataDevicePrimary;
++typedef struct _MetaWaylandDataDevicePrimaryLegacy MetaWaylandDataDevicePrimaryLegacy;
+ 
+ typedef struct _MetaWaylandTabletManager MetaWaylandTabletManager;
+ typedef struct _MetaWaylandTabletSeat MetaWaylandTabletSeat;
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index 86ad781d1..32c0d04c3 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -395,7 +395,7 @@ meta_wayland_init (void)
+ 
+   meta_wayland_outputs_init (compositor);
+   meta_wayland_data_device_manager_init (compositor);
+-  meta_wayland_data_device_primary_manager_init (compositor);
++  meta_wayland_data_device_primary_legacy_manager_init (compositor);
+   meta_wayland_subsurfaces_init (compositor);
+   meta_wayland_shell_init (compositor);
+   meta_wayland_pointer_gestures_init (compositor);
+-- 
+2.26.2
+

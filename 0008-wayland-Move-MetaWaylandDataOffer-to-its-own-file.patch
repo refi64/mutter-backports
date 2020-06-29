@@ -1,0 +1,840 @@
+From b52a0be2880a0bed428f620f65f40082a1afe348 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Thu, 9 Apr 2020 16:22:21 +0200
+Subject: [PATCH 08/25] wayland: Move MetaWaylandDataOffer to its own file
+
+This is still an openly defined struct, as we will need accessed
+by "subclasses". Same principle applies than with the
+MetaWaylandDataSource refactor, this is not meant to introduce
+functional changes, so just go with it.
+
+On the bright side, the interactions are now clearer, so it could
+be made saner in the future.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1193
+
+(cherry picked from commit 91ef7515de688d47ee30265a6651987bae352fc3)
+---
+ src/meson.build                        |   2 +
+ src/wayland/meta-wayland-data-device.c | 290 ++--------------------
+ src/wayland/meta-wayland-data-device.h |   3 +-
+ src/wayland/meta-wayland-data-offer.c  | 326 +++++++++++++++++++++++++
+ src/wayland/meta-wayland-data-offer.h  |  50 ++++
+ 5 files changed, 400 insertions(+), 271 deletions(-)
+ create mode 100644 src/wayland/meta-wayland-data-offer.c
+ create mode 100644 src/wayland/meta-wayland-data-offer.h
+
+diff --git a/src/meson.build b/src/meson.build
+index c1ea1e399..8ae0c56c6 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -495,6 +495,8 @@ if have_wayland
+     'wayland/meta-wayland-cursor-surface.h',
+     'wayland/meta-wayland-data-device.c',
+     'wayland/meta-wayland-data-device.h',
++    'wayland/meta-wayland-data-offer.c',
++    'wayland/meta-wayland-data-offer.h',
+     'wayland/meta-wayland-data-source.c',
+     'wayland/meta-wayland-data-source.h',
+     'wayland/meta-wayland-data-source-primary.c',
+diff --git a/src/wayland/meta-wayland-data-device.c b/src/wayland/meta-wayland-data-device.c
+index be8f53f0a..11c0d799e 100644
+--- a/src/wayland/meta-wayland-data-device.c
++++ b/src/wayland/meta-wayland-data-device.c
+@@ -47,22 +47,6 @@
+ 
+ #define ROOTWINDOW_DROP_MIME "application/x-rootwindow-drop"
+ 
+-#define ALL_ACTIONS (WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | \
+-                     WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE | \
+-                     WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK)
+-
+-struct _MetaWaylandDataOffer
+-{
+-  struct wl_resource *resource;
+-  MetaWaylandDataSource *source;
+-  struct wl_listener source_destroy_listener;
+-  gboolean accepted;
+-  gboolean action_sent;
+-  uint32_t dnd_actions;
+-  enum wl_data_device_manager_dnd_action preferred_dnd_action;
+-  MetaSelectionType selection_type;
+-};
+-
+ static void unset_selection_source (MetaWaylandDataDevice *data_device,
+                                     MetaSelectionType      selection_type);
+ 
+@@ -80,85 +64,6 @@ unbind_resource (struct wl_resource *resource)
+   wl_list_remove (wl_resource_get_link (resource));
+ }
+ 
+-static enum wl_data_device_manager_dnd_action
+-data_offer_choose_action (MetaWaylandDataOffer *offer)
+-{
+-  MetaWaylandDataSource *source = offer->source;
+-  uint32_t actions, user_action, available_actions;
+-
+-  if (wl_resource_get_version (offer->resource) <
+-      WL_DATA_OFFER_ACTION_SINCE_VERSION)
+-    return WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+-
+-  meta_wayland_data_source_get_actions (source, &actions);
+-  user_action = meta_wayland_data_source_get_user_action (source);
+-
+-  available_actions = actions & offer->dnd_actions;
+-
+-  if (!available_actions)
+-    return WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE;
+-
+-  /* If the user is forcing an action, go for it */
+-  if ((user_action & available_actions) != 0)
+-    return user_action;
+-
+-  /* If the dest side has a preferred DnD action, use it */
+-  if ((offer->preferred_dnd_action & available_actions) != 0)
+-    return offer->preferred_dnd_action;
+-
+-  /* Use the first found action, in bit order */
+-  return 1 << (ffs (available_actions) - 1);
+-}
+-
+-void
+-meta_wayland_data_offer_update_action (MetaWaylandDataOffer *offer)
+-{
+-  enum wl_data_device_manager_dnd_action current_action, action;
+-  MetaWaylandDataSource *source;
+-
+-  if (!offer->source)
+-    return;
+-
+-  source = offer->source;
+-  current_action = meta_wayland_data_source_get_current_action (source);
+-  action = data_offer_choose_action (offer);
+-
+-  if (current_action == action)
+-    return;
+-
+-  meta_wayland_data_source_set_current_action (source, action);
+-
+-  if (!meta_wayland_data_source_get_in_ask (source) &&
+-      wl_resource_get_version (offer->resource) >=
+-      WL_DATA_OFFER_ACTION_SINCE_VERSION)
+-    {
+-      wl_data_offer_send_action (offer->resource, action);
+-      offer->action_sent = TRUE;
+-    }
+-}
+-
+-static void
+-data_offer_accept (struct wl_client *client,
+-                   struct wl_resource *resource,
+-                   guint32 serial,
+-                   const char *mime_type)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-
+-  /* FIXME: Check that client is currently focused by the input
+-   * device that is currently dragging this data source.  Should
+-   * this be a wl_data_device request? */
+-
+-  if (offer->source)
+-    {
+-      meta_wayland_data_source_target (offer->source, mime_type);
+-      meta_wayland_data_source_set_has_target (offer->source,
+-                                               mime_type != NULL);
+-    }
+-
+-  offer->accepted = mime_type != NULL;
+-}
+-
+ static void
+ transfer_cb (MetaSelection *selection,
+              GAsyncResult  *res,
+@@ -175,42 +80,6 @@ transfer_cb (MetaSelection *selection,
+   g_output_stream_close (stream, NULL, NULL);
+ }
+ 
+-static void
+-data_offer_receive (struct wl_client *client, struct wl_resource *resource,
+-                    const char *mime_type, int32_t fd)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-  MetaDisplay *display = meta_get_display ();
+-  MetaSelectionType selection_type;
+-  GList *mime_types;
+-  gboolean found;
+-
+-  selection_type = offer->selection_type;
+-  mime_types = meta_selection_get_mimetypes (meta_display_get_selection (display),
+-                                             selection_type);
+-  found = g_list_find_custom (mime_types, mime_type, (GCompareFunc) g_strcmp0) != NULL;
+-  g_list_free_full (mime_types, g_free);
+-
+-  if (found)
+-    {
+-      GOutputStream *stream;
+-
+-      stream = g_unix_output_stream_new (fd, TRUE);
+-      meta_selection_transfer_async (meta_display_get_selection (display),
+-                                     selection_type,
+-                                     mime_type,
+-                                     -1,
+-                                     stream,
+-                                     NULL,
+-                                     (GAsyncReadyCallback) transfer_cb,
+-                                     stream);
+-    }
+-  else
+-    {
+-      close (fd);
+-    }
+-}
+-
+ static void
+ default_destructor (struct wl_client   *client,
+                     struct wl_resource *resource)
+@@ -218,79 +87,6 @@ default_destructor (struct wl_client   *client,
+   wl_resource_destroy (resource);
+ }
+ 
+-static void
+-data_offer_finish (struct wl_client   *client,
+-		   struct wl_resource *resource)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-  enum wl_data_device_manager_dnd_action current_action;
+-
+-  if (!offer->source ||
+-      offer != meta_wayland_data_source_get_current_offer (offer->source))
+-    return;
+-
+-  if (!offer->accepted || !offer->action_sent)
+-    {
+-      wl_resource_post_error (offer->resource,
+-                              WL_DATA_OFFER_ERROR_INVALID_FINISH,
+-                              "premature finish request");
+-      return;
+-    }
+-
+-  current_action = meta_wayland_data_source_get_current_action (offer->source);
+-
+-  if (current_action == WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE ||
+-      current_action == WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK)
+-    {
+-      wl_resource_post_error (offer->resource,
+-                              WL_DATA_OFFER_ERROR_INVALID_OFFER,
+-                              "offer finished with an invalid action");
+-      return;
+-    }
+-
+-  meta_wayland_data_source_notify_finish (offer->source);
+-}
+-
+-static void
+-data_offer_set_actions (struct wl_client   *client,
+-                        struct wl_resource *resource,
+-                        uint32_t            dnd_actions,
+-                        uint32_t            preferred_action)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-
+-  if (dnd_actions & ~(ALL_ACTIONS))
+-    {
+-      wl_resource_post_error (offer->resource,
+-                              WL_DATA_OFFER_ERROR_INVALID_ACTION_MASK,
+-                              "invalid actions mask %x", dnd_actions);
+-      return;
+-    }
+-
+-  if (preferred_action &&
+-      (!(preferred_action & dnd_actions) ||
+-       __builtin_popcount (preferred_action) > 1))
+-    {
+-      wl_resource_post_error (offer->resource,
+-                              WL_DATA_OFFER_ERROR_INVALID_ACTION,
+-                              "invalid action %x", preferred_action);
+-      return;
+-    }
+-
+-  offer->dnd_actions = dnd_actions;
+-  offer->preferred_dnd_action = preferred_action;
+-
+-  meta_wayland_data_offer_update_action (offer);
+-}
+-
+-static const struct wl_data_offer_interface data_offer_interface = {
+-  data_offer_accept,
+-  data_offer_receive,
+-  default_destructor,
+-  data_offer_finish,
+-  data_offer_set_actions,
+-};
+-
+ static void
+ primary_offer_receive (struct wl_client *client, struct wl_resource *resource,
+                        const char *mime_type, int32_t fd)
+@@ -327,42 +123,6 @@ static const struct gtk_primary_selection_offer_interface primary_offer_interfac
+   default_destructor,
+ };
+ 
+-static void
+-destroy_data_offer (struct wl_resource *resource)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-  MetaWaylandSeat *seat;
+-
+-  if (offer->source)
+-    {
+-      seat = meta_wayland_data_source_get_seat (offer->source);
+-
+-      if (offer == meta_wayland_data_source_get_current_offer (offer->source))
+-        {
+-          if (seat->data_device.dnd_data_source == offer->source)
+-            {
+-              if (wl_resource_get_version (offer->resource) <
+-                  WL_DATA_OFFER_ACTION_SINCE_VERSION)
+-                meta_wayland_data_source_notify_finish (offer->source);
+-              else if (meta_wayland_data_source_get_drop_performed (offer->source))
+-                meta_wayland_data_source_cancel (offer->source);
+-            }
+-          else
+-            {
+-              meta_wayland_data_source_set_current_offer (offer->source, NULL);
+-              meta_wayland_data_source_set_has_target (offer->source, FALSE);
+-            }
+-        }
+-
+-      g_object_remove_weak_pointer (G_OBJECT (offer->source),
+-                                    (gpointer *)&offer->source);
+-      offer->source = NULL;
+-    }
+-
+-  meta_display_sync_wayland_input_focus (meta_get_display ());
+-  g_slice_free (MetaWaylandDataOffer, offer);
+-}
+-
+ static void
+ destroy_primary_offer (struct wl_resource *resource)
+ {
+@@ -391,30 +151,23 @@ create_and_send_dnd_offer (MetaWaylandDataSource *source,
+ {
+   MetaWaylandDataOffer *offer = g_slice_new0 (MetaWaylandDataOffer);
+   struct wl_array *mime_types;
++  struct wl_resource *resource;
+   char **p;
+ 
+-  offer->selection_type = META_SELECTION_DND;
+-  offer->source = source;
+-  g_object_add_weak_pointer (G_OBJECT (source), (gpointer *)&offer->source);
+-  offer->resource = wl_resource_create (wl_resource_get_client (target),
+-                                        &wl_data_offer_interface,
+-                                        wl_resource_get_version (target), 0);
+-  wl_resource_set_implementation (offer->resource,
+-                                  &data_offer_interface,
+-                                  offer,
+-                                  destroy_data_offer);
++  offer = meta_wayland_data_offer_new (META_SELECTION_DND, source, target);
++  resource = meta_wayland_data_offer_get_resource (offer);
+ 
+-  wl_data_device_send_data_offer (target, offer->resource);
++  wl_data_device_send_data_offer (target, resource);
+ 
+   mime_types = meta_wayland_data_source_get_mime_types (source);
+ 
+   wl_array_for_each (p, mime_types)
+-    wl_data_offer_send_offer (offer->resource, *p);
++    wl_data_offer_send_offer (resource, *p);
+ 
+   meta_wayland_data_offer_update_action (offer);
+   meta_wayland_data_source_set_current_offer (source, offer);
+ 
+-  return offer->resource;
++  return resource;
+ }
+ 
+ struct _MetaWaylandDragGrab {
+@@ -1031,8 +784,10 @@ meta_wayland_drag_dest_focus_in (MetaWaylandDataDevice *data_device,
+                                  MetaWaylandDataOffer  *offer)
+ {
+   MetaWaylandDragGrab *grab = data_device->current_grab;
++  MetaWaylandDataSource *source;
+   struct wl_display *display;
+   struct wl_client *client;
++  struct wl_resource *resource;
+   uint32_t source_actions;
+   wl_fixed_t sx, sy;
+ 
+@@ -1046,18 +801,21 @@ meta_wayland_drag_dest_focus_in (MetaWaylandDataDevice *data_device,
+   wl_resource_add_destroy_listener (grab->drag_focus_data_device,
+                                     &grab->drag_focus_listener);
+ 
+-  if (wl_resource_get_version (offer->resource) >=
++  resource = meta_wayland_data_offer_get_resource (offer);
++
++  if (wl_resource_get_version (resource) >=
+       WL_DATA_OFFER_SOURCE_ACTIONS_SINCE_VERSION)
+     {
+-      meta_wayland_data_source_get_actions (offer->source, &source_actions);
+-      wl_data_offer_send_source_actions (offer->resource, source_actions);
++      source = meta_wayland_data_offer_get_source (offer);
++      meta_wayland_data_source_get_actions (source, &source_actions);
++      wl_data_offer_send_source_actions (resource, source_actions);
+     }
+ 
+   meta_wayland_pointer_get_relative_coordinates (grab->generic.pointer,
+                                                  surface, &sx, &sy);
+   wl_data_device_send_enter (grab->drag_focus_data_device,
+                              wl_display_next_serial (display),
+-                             surface->resource, sx, sy, offer->resource);
++                             surface->resource, sx, sy, resource);
+ }
+ 
+ static void
+@@ -1504,6 +1262,7 @@ create_and_send_clipboard_offer (MetaWaylandDataDevice *data_device,
+ {
+   MetaWaylandDataOffer *offer;
+   MetaDisplay *display = meta_get_display ();
++  struct wl_resource *resource;
+   GList *mimetypes, *l;
+ 
+   mimetypes = meta_selection_get_mimetypes (meta_display_get_selection (display),
+@@ -1511,24 +1270,17 @@ create_and_send_clipboard_offer (MetaWaylandDataDevice *data_device,
+   if (!mimetypes)
+     return NULL;
+ 
+-  offer = g_slice_new0 (MetaWaylandDataOffer);
+-  offer->selection_type = META_SELECTION_CLIPBOARD;
+-  offer->resource = wl_resource_create (wl_resource_get_client (target),
+-                                        &wl_data_offer_interface,
+-                                        wl_resource_get_version (target), 0);
+-  wl_resource_set_implementation (offer->resource,
+-                                  &data_offer_interface,
+-                                  offer,
+-                                  destroy_data_offer);
++  offer = meta_wayland_data_offer_new (META_SELECTION_CLIPBOARD, NULL, target);
++  resource = meta_wayland_data_offer_get_resource (offer);
+ 
+-  wl_data_device_send_data_offer (target, offer->resource);
++  wl_data_device_send_data_offer (target, resource);
+ 
+   for (l = mimetypes; l; l = l->next)
+-    wl_data_offer_send_offer (offer->resource, l->data);
++    wl_data_offer_send_offer (resource, l->data);
+ 
+   g_list_free_full (mimetypes, g_free);
+ 
+-  return offer->resource;
++  return resource;
+ }
+ 
+ static struct wl_resource *
+diff --git a/src/wayland/meta-wayland-data-device.h b/src/wayland/meta-wayland-data-device.h
+index d6563ab09..292cf56c4 100644
+--- a/src/wayland/meta-wayland-data-device.h
++++ b/src/wayland/meta-wayland-data-device.h
+@@ -28,6 +28,7 @@
+ 
+ #include "clutter/clutter.h"
+ #include "meta/meta-selection-source.h"
++#include "wayland/meta-wayland-data-offer.h"
+ #include "wayland/meta-wayland-data-source.h"
+ #include "wayland/meta-wayland-types.h"
+ 
+@@ -93,6 +94,4 @@ MetaWaylandSurface *
+ void     meta_wayland_drag_grab_update_feedback_actor (MetaWaylandDragGrab *drag_grab,
+                                                        ClutterEvent        *event);
+ 
+-void     meta_wayland_data_offer_update_action   (MetaWaylandDataOffer *offer);
+-
+ #endif /* META_WAYLAND_DATA_DEVICE_H */
+diff --git a/src/wayland/meta-wayland-data-offer.c b/src/wayland/meta-wayland-data-offer.c
+new file mode 100644
+index 000000000..800d55144
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-offer.c
+@@ -0,0 +1,326 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#include "config.h"
++
++#include <gio/gunixoutputstream.h>
++#include <glib-unix.h>
++#include <glib.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "meta/meta-selection.h"
++#include "wayland/meta-wayland-data-device.h"
++#include "wayland/meta-wayland-private.h"
++
++#include "meta-wayland-data-offer.h"
++
++#define ALL_ACTIONS (WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | \
++                     WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE | \
++                     WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK)
++
++static void
++data_offer_accept (struct wl_client *client,
++                   struct wl_resource *resource,
++                   guint32 serial,
++                   const char *mime_type)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++
++  /* FIXME: Check that client is currently focused by the input
++   * device that is currently dragging this data source.  Should
++   * this be a wl_data_device request? */
++
++  if (offer->source)
++    {
++      meta_wayland_data_source_target (offer->source, mime_type);
++      meta_wayland_data_source_set_has_target (offer->source,
++                                               mime_type != NULL);
++    }
++
++  offer->accepted = mime_type != NULL;
++}
++
++static void
++transfer_cb (MetaSelection *selection,
++             GAsyncResult  *res,
++             GOutputStream *stream)
++{
++  GError *error = NULL;
++
++  if (!meta_selection_transfer_finish (selection, res, &error))
++    {
++      g_warning ("Could not fetch selection data: %s", error->message);
++      g_error_free (error);
++    }
++
++  g_output_stream_close (stream, NULL, NULL);
++}
++
++static void
++data_offer_receive (struct wl_client *client, struct wl_resource *resource,
++                    const char *mime_type, int32_t fd)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++  MetaDisplay *display = meta_get_display ();
++  MetaSelectionType selection_type;
++  GList *mime_types;
++  gboolean found;
++
++  selection_type = offer->selection_type;
++  mime_types = meta_selection_get_mimetypes (meta_display_get_selection (display),
++                                             selection_type);
++  found = g_list_find_custom (mime_types, mime_type, (GCompareFunc) g_strcmp0) != NULL;
++  g_list_free_full (mime_types, g_free);
++
++  if (found)
++    {
++      GOutputStream *stream;
++
++      stream = g_unix_output_stream_new (fd, TRUE);
++      meta_selection_transfer_async (meta_display_get_selection (display),
++                                     selection_type,
++                                     mime_type,
++                                     -1,
++                                     stream,
++                                     NULL,
++                                     (GAsyncReadyCallback) transfer_cb,
++                                     stream);
++    }
++  else
++    {
++      close (fd);
++    }
++}
++
++static void
++data_offer_destroy (struct wl_client   *client,
++                    struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++data_offer_finish (struct wl_client   *client,
++		   struct wl_resource *resource)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++  enum wl_data_device_manager_dnd_action current_action;
++
++  if (!offer->source ||
++      offer != meta_wayland_data_source_get_current_offer (offer->source))
++    return;
++
++  if (!offer->accepted || !offer->action_sent)
++    {
++      wl_resource_post_error (offer->resource,
++                              WL_DATA_OFFER_ERROR_INVALID_FINISH,
++                              "premature finish request");
++      return;
++    }
++
++  current_action = meta_wayland_data_source_get_current_action (offer->source);
++
++  if (current_action == WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE ||
++      current_action == WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK)
++    {
++      wl_resource_post_error (offer->resource,
++                              WL_DATA_OFFER_ERROR_INVALID_OFFER,
++                              "offer finished with an invalid action");
++      return;
++    }
++
++  meta_wayland_data_source_notify_finish (offer->source);
++}
++
++static void
++data_offer_set_actions (struct wl_client   *client,
++                        struct wl_resource *resource,
++                        uint32_t            dnd_actions,
++                        uint32_t            preferred_action)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++
++  if (dnd_actions & ~(ALL_ACTIONS))
++    {
++      wl_resource_post_error (offer->resource,
++                              WL_DATA_OFFER_ERROR_INVALID_ACTION_MASK,
++                              "invalid actions mask %x", dnd_actions);
++      return;
++    }
++
++  if (preferred_action &&
++      (!(preferred_action & dnd_actions) ||
++       __builtin_popcount (preferred_action) > 1))
++    {
++      wl_resource_post_error (offer->resource,
++                              WL_DATA_OFFER_ERROR_INVALID_ACTION,
++                              "invalid action %x", preferred_action);
++      return;
++    }
++
++  offer->dnd_actions = dnd_actions;
++  offer->preferred_dnd_action = preferred_action;
++
++  meta_wayland_data_offer_update_action (offer);
++}
++
++static const struct wl_data_offer_interface data_offer_interface = {
++  data_offer_accept,
++  data_offer_receive,
++  data_offer_destroy,
++  data_offer_finish,
++  data_offer_set_actions,
++};
++
++static void
++destroy_data_offer (struct wl_resource *resource)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++  MetaWaylandSeat *seat;
++
++  if (offer->source)
++    {
++      seat = meta_wayland_data_source_get_seat (offer->source);
++
++      if (offer == meta_wayland_data_source_get_current_offer (offer->source))
++        {
++          if (seat->data_device.dnd_data_source == offer->source)
++            {
++              if (wl_resource_get_version (offer->resource) <
++                  WL_DATA_OFFER_ACTION_SINCE_VERSION)
++                meta_wayland_data_source_notify_finish (offer->source);
++              else if (meta_wayland_data_source_get_drop_performed (offer->source))
++                meta_wayland_data_source_cancel (offer->source);
++            }
++          else
++            {
++              meta_wayland_data_source_set_current_offer (offer->source, NULL);
++              meta_wayland_data_source_set_has_target (offer->source, FALSE);
++            }
++        }
++
++      g_object_remove_weak_pointer (G_OBJECT (offer->source),
++                                    (gpointer *)&offer->source);
++      offer->source = NULL;
++    }
++
++  meta_display_sync_wayland_input_focus (meta_get_display ());
++  g_slice_free (MetaWaylandDataOffer, offer);
++}
++
++MetaWaylandDataOffer *
++meta_wayland_data_offer_new (MetaSelectionType      selection_type,
++                             MetaWaylandDataSource *source,
++                             struct wl_resource    *target)
++{
++  MetaWaylandDataOffer *offer;
++
++  offer = g_slice_new0 (MetaWaylandDataOffer);
++  offer->selection_type = selection_type;
++  offer->resource = wl_resource_create (wl_resource_get_client (target),
++                                        &wl_data_offer_interface,
++                                        wl_resource_get_version (target), 0);
++  wl_resource_set_implementation (offer->resource,
++                                  &data_offer_interface,
++                                  offer,
++                                  destroy_data_offer);
++  if (source)
++    {
++      offer->source = source;
++      g_object_add_weak_pointer (G_OBJECT (source), (gpointer *)&offer->source);
++    }
++
++  return offer;
++}
++
++static enum wl_data_device_manager_dnd_action
++data_offer_choose_action (MetaWaylandDataOffer *offer)
++{
++  MetaWaylandDataSource *source = offer->source;
++  uint32_t actions, user_action, available_actions;
++
++  if (wl_resource_get_version (offer->resource) <
++      WL_DATA_OFFER_ACTION_SINCE_VERSION)
++    return WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
++
++  meta_wayland_data_source_get_actions (source, &actions);
++  user_action = meta_wayland_data_source_get_user_action (source);
++
++  available_actions = actions & offer->dnd_actions;
++
++  if (!available_actions)
++    return WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE;
++
++  /* If the user is forcing an action, go for it */
++  if ((user_action & available_actions) != 0)
++    return user_action;
++
++  /* If the dest side has a preferred DnD action, use it */
++  if ((offer->preferred_dnd_action & available_actions) != 0)
++    return offer->preferred_dnd_action;
++
++  /* Use the first found action, in bit order */
++  return 1 << (ffs (available_actions) - 1);
++}
++
++void
++meta_wayland_data_offer_update_action (MetaWaylandDataOffer *offer)
++{
++  enum wl_data_device_manager_dnd_action current_action, action;
++  MetaWaylandDataSource *source;
++
++  if (!offer->source)
++    return;
++
++  source = offer->source;
++  current_action = meta_wayland_data_source_get_current_action (source);
++  action = data_offer_choose_action (offer);
++
++  if (current_action == action)
++    return;
++
++  meta_wayland_data_source_set_current_action (source, action);
++
++  if (!meta_wayland_data_source_get_in_ask (source) &&
++      wl_resource_get_version (offer->resource) >=
++      WL_DATA_OFFER_ACTION_SINCE_VERSION)
++    {
++      wl_data_offer_send_action (offer->resource, action);
++      offer->action_sent = TRUE;
++    }
++}
++
++struct wl_resource *
++meta_wayland_data_offer_get_resource (MetaWaylandDataOffer *offer)
++{
++  return offer->resource;
++}
++
++MetaWaylandDataSource *
++meta_wayland_data_offer_get_source (MetaWaylandDataOffer *offer)
++{
++  return offer->source;
++}
+diff --git a/src/wayland/meta-wayland-data-offer.h b/src/wayland/meta-wayland-data-offer.h
+new file mode 100644
+index 000000000..07824c1e0
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-offer.h
+@@ -0,0 +1,50 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#ifndef META_WAYLAND_DATA_OFFER_H
++#define META_WAYLAND_DATA_OFFER_H
++
++#include "wayland/meta-wayland-data-source.h"
++
++struct _MetaWaylandDataOffer
++{
++  struct wl_resource *resource;
++  MetaWaylandDataSource *source;
++  struct wl_listener source_destroy_listener;
++  gboolean accepted;
++  gboolean action_sent;
++  uint32_t dnd_actions;
++  enum wl_data_device_manager_dnd_action preferred_dnd_action;
++  MetaSelectionType selection_type;
++};
++
++MetaWaylandDataOffer * meta_wayland_data_offer_new (MetaSelectionType      selection_type,
++                                                    MetaWaylandDataSource *source,
++                                                    struct wl_resource    *resource);
++
++void meta_wayland_data_offer_update_action (MetaWaylandDataOffer *offer);
++
++struct wl_resource *    meta_wayland_data_offer_get_resource (MetaWaylandDataOffer *offer);
++MetaWaylandDataSource * meta_wayland_data_offer_get_source   (MetaWaylandDataOffer *offer);
++
++#endif /* META_WAYLAND_DATA_OFFER_H */
+-- 
+2.26.2
+

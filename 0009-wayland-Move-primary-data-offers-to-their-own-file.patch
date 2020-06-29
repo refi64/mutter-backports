@@ -1,0 +1,346 @@
+From 8b69e7902ad3cf8341d965e967fb6c9f33947df7 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Thu, 9 Apr 2020 16:33:35 +0200
+Subject: [PATCH 09/25] wayland: Move primary data offers to their own file
+
+Following the MetaWaylandDataOffer split.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1193
+
+(cherry picked from commit 4726f3d5d3ac6ea0ca5290886492e5daa1eb830e)
+---
+ src/meson.build                               |   2 +
+ src/wayland/meta-wayland-data-device.c        |  85 +----------
+ src/wayland/meta-wayland-data-offer-primary.c | 138 ++++++++++++++++++
+ src/wayland/meta-wayland-data-offer-primary.h |  31 ++++
+ src/wayland/meta-wayland-data-offer.h         |   1 +
+ 5 files changed, 174 insertions(+), 83 deletions(-)
+ create mode 100644 src/wayland/meta-wayland-data-offer-primary.c
+ create mode 100644 src/wayland/meta-wayland-data-offer-primary.h
+
+diff --git a/src/meson.build b/src/meson.build
+index 8ae0c56c6..b7422da56 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -497,6 +497,8 @@ if have_wayland
+     'wayland/meta-wayland-data-device.h',
+     'wayland/meta-wayland-data-offer.c',
+     'wayland/meta-wayland-data-offer.h',
++    'wayland/meta-wayland-data-offer-primary.c',
++    'wayland/meta-wayland-data-offer-primary.h',
+     'wayland/meta-wayland-data-source.c',
+     'wayland/meta-wayland-data-source.h',
+     'wayland/meta-wayland-data-source-primary.c',
+diff --git a/src/wayland/meta-wayland-data-device.c b/src/wayland/meta-wayland-data-device.c
+index 11c0d799e..f300d68d1 100644
+--- a/src/wayland/meta-wayland-data-device.c
++++ b/src/wayland/meta-wayland-data-device.c
+@@ -38,6 +38,7 @@
+ #include "compositor/meta-dnd-actor-private.h"
+ #include "meta/meta-selection-source-memory.h"
+ #include "wayland/meta-selection-source-wayland-private.h"
++#include "wayland/meta-wayland-data-offer-primary.h"
+ #include "wayland/meta-wayland-dnd-surface.h"
+ #include "wayland/meta-wayland-pointer.h"
+ #include "wayland/meta-wayland-private.h"
+@@ -64,22 +65,6 @@ unbind_resource (struct wl_resource *resource)
+   wl_list_remove (wl_resource_get_link (resource));
+ }
+ 
+-static void
+-transfer_cb (MetaSelection *selection,
+-             GAsyncResult  *res,
+-             GOutputStream *stream)
+-{
+-  GError *error = NULL;
+-
+-  if (!meta_selection_transfer_finish (selection, res, &error))
+-    {
+-      g_warning ("Could not fetch selection data: %s", error->message);
+-      g_error_free (error);
+-    }
+-
+-  g_output_stream_close (stream, NULL, NULL);
+-}
+-
+ static void
+ default_destructor (struct wl_client   *client,
+                     struct wl_resource *resource)
+@@ -87,64 +72,6 @@ default_destructor (struct wl_client   *client,
+   wl_resource_destroy (resource);
+ }
+ 
+-static void
+-primary_offer_receive (struct wl_client *client, struct wl_resource *resource,
+-                       const char *mime_type, int32_t fd)
+-{
+-  MetaDisplay *display = meta_get_display ();
+-  GOutputStream *stream;
+-  GList *mime_types;
+-  gboolean found;
+-
+-  mime_types = meta_selection_get_mimetypes (meta_display_get_selection (display),
+-                                             META_SELECTION_PRIMARY);
+-  found = g_list_find_custom (mime_types, mime_type, (GCompareFunc) g_strcmp0) != NULL;
+-  g_list_free_full (mime_types, g_free);
+-
+-  if (!found)
+-    {
+-      close (fd);
+-      return;
+-    }
+-
+-  stream = g_unix_output_stream_new (fd, TRUE);
+-  meta_selection_transfer_async (meta_display_get_selection (display),
+-                                 META_SELECTION_PRIMARY,
+-                                 mime_type,
+-                                 -1,
+-                                 stream,
+-                                 NULL,
+-                                 (GAsyncReadyCallback) transfer_cb,
+-                                 stream);
+-}
+-
+-static const struct gtk_primary_selection_offer_interface primary_offer_interface = {
+-  primary_offer_receive,
+-  default_destructor,
+-};
+-
+-static void
+-destroy_primary_offer (struct wl_resource *resource)
+-{
+-  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
+-
+-  if (offer->source)
+-    {
+-      if (offer == meta_wayland_data_source_get_current_offer (offer->source))
+-        {
+-          meta_wayland_data_source_cancel (offer->source);
+-          meta_wayland_data_source_set_current_offer (offer->source, NULL);
+-        }
+-
+-      g_object_remove_weak_pointer (G_OBJECT (offer->source),
+-                                    (gpointer *)&offer->source);
+-      offer->source = NULL;
+-    }
+-
+-  meta_display_sync_wayland_input_focus (meta_get_display ());
+-  g_slice_free (MetaWaylandDataOffer, offer);
+-}
+-
+ static struct wl_resource *
+ create_and_send_dnd_offer (MetaWaylandDataSource *source,
+                            struct wl_resource *target)
+@@ -1296,15 +1223,7 @@ create_and_send_primary_offer (MetaWaylandDataDevice *data_device,
+   if (!mimetypes)
+     return NULL;
+ 
+-  offer = g_slice_new0 (MetaWaylandDataOffer);
+-  offer->selection_type = META_SELECTION_PRIMARY;
+-  offer->resource = wl_resource_create (wl_resource_get_client (target),
+-                                        &gtk_primary_selection_offer_interface,
+-                                        wl_resource_get_version (target), 0);
+-  wl_resource_set_implementation (offer->resource,
+-                                  &primary_offer_interface,
+-                                  offer,
+-                                  destroy_primary_offer);
++  offer = meta_wayland_data_offer_primary_new (target);
+ 
+   gtk_primary_selection_device_send_data_offer (target, offer->resource);
+ 
+diff --git a/src/wayland/meta-wayland-data-offer-primary.c b/src/wayland/meta-wayland-data-offer-primary.c
+new file mode 100644
+index 000000000..8da1e29fb
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-offer-primary.c
+@@ -0,0 +1,138 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#include "config.h"
++
++#include "meta-wayland-data-offer-primary.h"
++
++#include <gio/gunixoutputstream.h>
++#include <glib-unix.h>
++#include <glib.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "core/display-private.h"
++#include "gtk-primary-selection-server-protocol.h"
++#include "wayland/meta-wayland-data-offer.h"
++
++static void
++transfer_cb (MetaSelection *selection,
++             GAsyncResult  *res,
++             GOutputStream *stream)
++{
++  GError *error = NULL;
++
++  if (!meta_selection_transfer_finish (selection, res, &error))
++    {
++      g_warning ("Could not fetch selection data: %s", error->message);
++      g_error_free (error);
++    }
++
++  g_output_stream_close (stream, NULL, NULL);
++}
++
++static void
++primary_offer_receive (struct wl_client   *client,
++		       struct wl_resource *resource,
++                       const char         *mime_type,
++		       int32_t             fd)
++{
++  MetaDisplay *display = meta_get_display ();
++  GOutputStream *stream;
++  GList *mime_types;
++  gboolean found;
++
++  mime_types = meta_selection_get_mimetypes (meta_display_get_selection (display),
++                                             META_SELECTION_PRIMARY);
++  found = g_list_find_custom (mime_types, mime_type, (GCompareFunc) g_strcmp0) != NULL;
++  g_list_free_full (mime_types, g_free);
++
++  if (!found)
++    {
++      close (fd);
++      return;
++    }
++
++  stream = g_unix_output_stream_new (fd, TRUE);
++  meta_selection_transfer_async (meta_display_get_selection (display),
++                                 META_SELECTION_PRIMARY,
++                                 mime_type,
++                                 -1,
++                                 stream,
++                                 NULL,
++                                 (GAsyncReadyCallback) transfer_cb,
++                                 stream);
++}
++
++static void
++primary_offer_destroy (struct wl_client   *client,
++                       struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct gtk_primary_selection_offer_interface primary_offer_interface = {
++  primary_offer_receive,
++  primary_offer_destroy,
++};
++
++static void
++destroy_primary_offer (struct wl_resource *resource)
++{
++  MetaWaylandDataOffer *offer = wl_resource_get_user_data (resource);
++
++  if (offer->source)
++    {
++      if (offer == meta_wayland_data_source_get_current_offer (offer->source))
++        {
++          meta_wayland_data_source_cancel (offer->source);
++          meta_wayland_data_source_set_current_offer (offer->source, NULL);
++        }
++
++      g_object_remove_weak_pointer (G_OBJECT (offer->source),
++                                    (gpointer *)&offer->source);
++      offer->source = NULL;
++    }
++
++  meta_display_sync_wayland_input_focus (meta_get_display ());
++  g_slice_free (MetaWaylandDataOffer, offer);
++}
++
++MetaWaylandDataOffer *
++meta_wayland_data_offer_primary_new (struct wl_resource *target)
++{
++  MetaWaylandDataOffer *offer;
++
++  offer = g_slice_new0 (MetaWaylandDataOffer);
++  offer->selection_type = META_SELECTION_PRIMARY;
++  offer->resource = wl_resource_create (wl_resource_get_client (target),
++                                        &gtk_primary_selection_offer_interface,
++                                        wl_resource_get_version (target), 0);
++  wl_resource_set_implementation (offer->resource,
++                                  &primary_offer_interface,
++                                  offer,
++                                  destroy_primary_offer);
++  return offer;
++}
+diff --git a/src/wayland/meta-wayland-data-offer-primary.h b/src/wayland/meta-wayland-data-offer-primary.h
+new file mode 100644
+index 000000000..cf59fb5c7
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-offer-primary.h
+@@ -0,0 +1,31 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#ifndef META_WAYLAND_DATA_OFFER_PRIMARY_H
++#define META_WAYLAND_DATA_OFFER_PRIMARY_H
++
++#include "meta-wayland-data-offer.h"
++
++MetaWaylandDataOffer * meta_wayland_data_offer_primary_new (struct wl_resource *target);
++
++#endif /* META_WAYLAND_DATA_OFFER_PRIMARY_H */
+diff --git a/src/wayland/meta-wayland-data-offer.h b/src/wayland/meta-wayland-data-offer.h
+index 07824c1e0..811aa0935 100644
+--- a/src/wayland/meta-wayland-data-offer.h
++++ b/src/wayland/meta-wayland-data-offer.h
+@@ -24,6 +24,7 @@
+ #ifndef META_WAYLAND_DATA_OFFER_H
+ #define META_WAYLAND_DATA_OFFER_H
+ 
++#include "meta/meta-selection.h"
+ #include "wayland/meta-wayland-data-source.h"
+ 
+ struct _MetaWaylandDataOffer
+-- 
+2.26.2
+

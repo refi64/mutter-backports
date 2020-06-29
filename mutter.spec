@@ -30,6 +30,33 @@ Patch3:        0001-window-actor-x11-switch-the-signal-callback-argument.patch
 Patch4:        0002-clutter-paint-context-Fix-NO_PAINT_SIGNAL-flag-enum-.patch
 Patch5:        0003-clutter-stage-Make-paint_to_buffer-use-the-correct-t.patch
 
+# Various other backports
+Patch6: 0001-shaped-texture-Reintroduce-clip_region.patch
+Patch7: 0002-gpu-kms-Turn-off-CRTCs-as-well-for-DPMS.patch
+Patch8: 0003-gpu-kms-Fix-compilation-issues-from-backport.patch
+Patch9: 0004-Revert-wayland-Send-primary-offer-to-all-data-device.patch
+Patch10: 0005-Revert-wayland-Send-clipboard-offers-to-all-data-dev.patch
+Patch11: 0006-wayland-Split-MetaWaylandDataSource-into-a-separate-.patch
+Patch12: 0007-wayland-Move-MetaWaylandDataSourcePrimary-to-its-own.patch
+Patch13: 0008-wayland-Move-MetaWaylandDataOffer-to-its-own-file.patch
+Patch14: 0009-wayland-Move-primary-data-offers-to-their-own-file.patch
+Patch15: 0010-wayland-Move-the-primary-data-device-manager-to-its-.patch
+Patch16: 0011-wayland-Drop-unused-struct-variable.patch
+Patch17: 0012-wayland-Send-clipboard-offers-to-all-data-devices-fr.patch
+Patch18: 0013-wayland-Send-primary-offer-to-all-data-devices-from-.patch
+Patch19: 0014-wayland-Rename-gtk-primary-protocol-files-to-legacy.patch
+Patch20: 0015-build-Build-scaffolding-for-primary-selection-waylan.patch
+Patch21: 0016-wayland-Add-support-for-wayland-protocols-primary-se.patch
+Patch22: 0017-core-Fix-memory-selection-source-leak-after-clipboar.patch
+Patch23: 0018-core-Free-clipboard-selection-source-on-shutdown.patch
+Patch24: 0019-wayland-Free-selection-streams-streams-after-transfe.patch
+Patch25: 0020-wayland-data-device-Don-t-create-and-leak-unused-mem.patch
+Patch26: 0021-wayland-Remove-a-couple-of-stray-newlines.patch
+Patch27: 0022-wayland-shell-Apply-geometry-after-subsurface-state-.patch
+Patch28: 0023-wayland-xdg-shell-Don-t-use-xdg_surface-private-to-g.patch
+Patch29: 0024-shaped-texture-Use-the-REPLACE-combine-function-on-o.patch
+Patch30: 0025-clutter-stage-cogl-Fix-uninitialized-variable-use_cl.patch
+
 BuildRequires: chrpath
 BuildRequires: pango-devel
 BuildRequires: startup-notification-devel

@@ -1,0 +1,31 @@
+From bb4bd4b5c0c035f65ea182cc2a7b232e811087db Mon Sep 17 00:00:00 2001
+From: Sebastian Keller <skeller@gnome.org>
+Date: Fri, 5 Jun 2020 19:38:23 +0200
+Subject: [PATCH 18/25] core: Free clipboard selection source on shutdown
+
+The clipboard manager is the only code to ever set the display selection
+source, so it should also be responsible for unsetting it when the
+clipboard manager gets shut down.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1293
+
+(cherry picked from commit 019643bad081f7a29119a99ca5ecbc5c2ba3ee56)
+---
+ src/core/meta-clipboard-manager.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/core/meta-clipboard-manager.c b/src/core/meta-clipboard-manager.c
+index 69b00d85a..794195f41 100644
+--- a/src/core/meta-clipboard-manager.c
++++ b/src/core/meta-clipboard-manager.c
+@@ -171,6 +171,7 @@ meta_clipboard_manager_shutdown (MetaDisplay *display)
+ {
+   MetaSelection *selection;
+ 
++  g_clear_object (&display->selection_source);
+   g_clear_pointer (&display->saved_clipboard, g_bytes_unref);
+   g_clear_pointer (&display->saved_clipboard_mimetype, g_free);
+   selection = meta_display_get_selection (display);
+-- 
+2.26.2
+

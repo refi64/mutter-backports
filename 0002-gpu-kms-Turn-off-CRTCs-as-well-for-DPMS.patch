@@ -1,0 +1,75 @@
+From cc617b059c69eea751c080bcf49f43c1603efcca Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Michel=20D=C3=A4nzer?= <mdaenzer@redhat.com>
+Date: Fri, 8 May 2020 16:51:18 +0000
+Subject: [PATCH 02/25] gpu/kms: Turn off CRTCs as well for DPMS
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This avoids some issues which could happen on some setups[0] due to
+meta-native-renderer.c:dummy_power_save_page_flip →
+meta_onscreen_native_swap_drm_fb implicitly turning of the primary
+plane (by destroying the KMS framebuffer assigned to it):
+
+* drmModeObjectSetProperty could return an "Invalid argument" error
+  between setting a non-empty cursor with drmModeSetCursor(2) and
+  enabling the primary plane again:
+
+  Failed to DPMS: Failed to set connector 69 property 2: Invalid argument
+
+  (This was harmless other than the error message, as we always re-set
+  a mode on the CRTC after setting the DPMS property to on, which
+  enables the primary plane and implicitly sets the DRM property to on)
+
+* drmModeSetCursor(2) could return an "Invalid argument" error between
+  setting the DPMS property to on and enabling the primary plane again:
+
+  Failed to set hardware cursor (drmModeSetCursor failed: Invalid argument), using OpenGL from now on
+
+[0] E.g. with the amdgpu DC display code.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1240
+
+
+(cherry picked from commit 2e5b767c01b56ce5d28ca5da3c964cdb9262b80b)
+---
+ src/backends/native/meta-gpu-kms.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/backends/native/meta-gpu-kms.c b/src/backends/native/meta-gpu-kms.c
+index 4d3aa25df..061fb01fc 100644
+--- a/src/backends/native/meta-gpu-kms.c
++++ b/src/backends/native/meta-gpu-kms.c
+@@ -232,14 +232,28 @@ meta_gpu_kms_set_power_save_mode (MetaGpuKms    *gpu_kms,
+                                   uint64_t       state,
+                                   MetaKmsUpdate *kms_update)
+ {
++  MetaGpu *gpu = META_GPU (gpu_kms);
+   GList *l;
+ 
+-  for (l = meta_gpu_get_outputs (META_GPU (gpu_kms)); l; l = l->next)
++  for (l = meta_gpu_get_outputs (gpu); l; l = l->next)
+     {
+       MetaOutput *output = l->data;
+ 
+       meta_output_kms_set_power_save_mode (output, state, kms_update);
+     }
++
++  if (state != META_POWER_SAVE_ON)
++    {
++      /* Turn off CRTCs for DPMS */
++      for (l = meta_gpu_get_crtcs (gpu); l; l = l->next)
++        {
++          MetaCrtcKms *crtc_kms = META_CRTC_KMS (l->data);
++
++          meta_kms_update_mode_set (kms_update,
++                                    meta_crtc_kms_get_kms_crtc (crtc_kms),
++                                    NULL, NULL);
++        }
++    }
+ }
+ 
+ gboolean
+-- 
+2.26.2
+

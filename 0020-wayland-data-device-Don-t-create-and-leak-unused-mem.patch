@@ -1,0 +1,32 @@
+From b8bd39793a27608d66bf6878d37b421f7c8efb89 Mon Sep 17 00:00:00 2001
+From: Sebastian Keller <skeller@gnome.org>
+Date: Sun, 7 Jun 2020 18:42:29 +0200
+Subject: [PATCH 20/25] wayland/data-device: Don't create and leak unused
+ memory on dnd
+
+"offer" is overwritten with the result of meta_wayland_data_offer_new a
+few lines later.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1293
+
+(cherry picked from commit 99c9f4c1fa4abab4cabe9dda0c6ca8f614a73486)
+---
+ src/wayland/meta-wayland-data-device.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/wayland/meta-wayland-data-device.c b/src/wayland/meta-wayland-data-device.c
+index daf296853..9231ac594 100644
+--- a/src/wayland/meta-wayland-data-device.c
++++ b/src/wayland/meta-wayland-data-device.c
+@@ -94,7 +94,7 @@ static struct wl_resource *
+ create_and_send_dnd_offer (MetaWaylandDataSource *source,
+                            struct wl_resource *target)
+ {
+-  MetaWaylandDataOffer *offer = g_slice_new0 (MetaWaylandDataOffer);
++  MetaWaylandDataOffer *offer;
+   struct wl_array *mime_types;
+   struct wl_resource *resource;
+   char **p;
+-- 
+2.26.2
+

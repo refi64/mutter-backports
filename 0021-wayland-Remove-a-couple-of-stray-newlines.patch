@@ -1,0 +1,40 @@
+From a83d83f087e26f54b84ae4530886d64511345daf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
+Date: Mon, 8 Jun 2020 09:13:17 +0200
+Subject: [PATCH 21/25] wayland: Remove a couple of stray newlines
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1295
+
+(cherry picked from commit be59b514cab8f8765393ee58764e95c20a74a7c3)
+---
+ src/wayland/meta-wayland-legacy-xdg-shell.c | 1 -
+ src/wayland/meta-wayland-xdg-shell.c        | 1 -
+ 2 files changed, 2 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-legacy-xdg-shell.c b/src/wayland/meta-wayland-legacy-xdg-shell.c
+index eba802e0c..ca6da8f77 100644
+--- a/src/wayland/meta-wayland-legacy-xdg-shell.c
++++ b/src/wayland/meta-wayland-legacy-xdg-shell.c
+@@ -734,7 +734,6 @@ meta_wayland_zxdg_toplevel_v6_apply_state (MetaWaylandSurfaceRole  *surface_role
+           wl_resource_post_error (surface->resource,
+                                   ZXDG_SHELL_V6_ERROR_INVALID_SURFACE_STATE,
+                                   "Invalid min/max size");
+-
+         }
+     }
+ }
+diff --git a/src/wayland/meta-wayland-xdg-shell.c b/src/wayland/meta-wayland-xdg-shell.c
+index d8f639757..9526cc42f 100644
+--- a/src/wayland/meta-wayland-xdg-shell.c
++++ b/src/wayland/meta-wayland-xdg-shell.c
+@@ -821,7 +821,6 @@ meta_wayland_xdg_toplevel_apply_state (MetaWaylandSurfaceRole  *surface_role,
+           wl_resource_post_error (surface->resource,
+                                   XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE,
+                                   "Invalid min/max size");
+-
+         }
+     }
+ }
+-- 
+2.26.2
+

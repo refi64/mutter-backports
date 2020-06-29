@@ -1,0 +1,395 @@
+From 1eb0812f0a7e4db41c4cabf0efd6901593025ebb Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Thu, 9 Apr 2020 15:35:15 +0200
+Subject: [PATCH 07/25] wayland: Move MetaWaylandDataSourcePrimary to its own
+ file
+
+Following the MetaWaylandDataSource split, this goes next.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1193
+
+(cherry picked from commit 317f6c0910b7d66ec24d6232e35f211673d22947)
+---
+ src/meson.build                               |   3 +-
+ .../meta-selection-source-wayland-private.h   |   1 -
+ .../meta-wayland-data-device-private.h        |  34 -----
+ src/wayland/meta-wayland-data-device.c        |  86 +------------
+ .../meta-wayland-data-source-primary.c        | 117 ++++++++++++++++++
+ .../meta-wayland-data-source-primary.h        |  37 ++++++
+ 6 files changed, 157 insertions(+), 121 deletions(-)
+ delete mode 100644 src/wayland/meta-wayland-data-device-private.h
+ create mode 100644 src/wayland/meta-wayland-data-source-primary.c
+ create mode 100644 src/wayland/meta-wayland-data-source-primary.h
+
+diff --git a/src/meson.build b/src/meson.build
+index b8bb20832..c1ea1e399 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -495,9 +495,10 @@ if have_wayland
+     'wayland/meta-wayland-cursor-surface.h',
+     'wayland/meta-wayland-data-device.c',
+     'wayland/meta-wayland-data-device.h',
+-    'wayland/meta-wayland-data-device-private.h',
+     'wayland/meta-wayland-data-source.c',
+     'wayland/meta-wayland-data-source.h',
++    'wayland/meta-wayland-data-source-primary.c',
++    'wayland/meta-wayland-data-source-primary.h',
+     'wayland/meta-wayland-dma-buf.c',
+     'wayland/meta-wayland-dma-buf.h',
+     'wayland/meta-wayland-dnd-surface.c',
+diff --git a/src/wayland/meta-selection-source-wayland-private.h b/src/wayland/meta-selection-source-wayland-private.h
+index a6ada8898..38489530a 100644
+--- a/src/wayland/meta-selection-source-wayland-private.h
++++ b/src/wayland/meta-selection-source-wayland-private.h
+@@ -26,7 +26,6 @@
+ 
+ #include "meta/meta-selection-source.h"
+ #include "wayland/meta-wayland-data-device.h"
+-#include "wayland/meta-wayland-data-device-private.h"
+ 
+ #define META_TYPE_SELECTION_SOURCE_WAYLAND (meta_selection_source_wayland_get_type ())
+ 
+diff --git a/src/wayland/meta-wayland-data-device-private.h b/src/wayland/meta-wayland-data-device-private.h
+deleted file mode 100644
+index a6a373f69..000000000
+--- a/src/wayland/meta-wayland-data-device-private.h
++++ /dev/null
+@@ -1,34 +0,0 @@
+-/* -*- mode: C; c-file-style: "gnu"; indent-tabs-mode: nil; -*- */
+-
+-/*
+- * Copyright (C) 2015 Red Hat
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public License as
+- * published by the Free Software Foundation; either version 2 of the
+- * License, or (at your option) any later version.
+- *
+- * This program is distributed in the hope that it will be useful, but
+- * WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+- * General Public License for more details.
+- *
+- * You should have received a copy of the GNU General Public License
+- * along with this program; if not, write to the Free Software
+- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+- * 02111-1307, USA.
+- *
+- * Written by:
+- *     Jonas Ådahl <jadahl@gmail.com>
+- */
+-
+-#ifndef META_WAYLAND_DATA_DEVICE_PRIVATE_H
+-#define META_WAYLAND_DATA_DEVICE_PRIVATE_H
+-
+-#define META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY (meta_wayland_data_source_primary_get_type ())
+-G_DECLARE_FINAL_TYPE (MetaWaylandDataSourcePrimary,
+-                      meta_wayland_data_source_primary,
+-                      META, WAYLAND_DATA_SOURCE_PRIMARY,
+-                      MetaWaylandDataSource);
+-
+-#endif /* META_WAYLAND_DATA_DEVICE_PRIVATE_H */
+diff --git a/src/wayland/meta-wayland-data-device.c b/src/wayland/meta-wayland-data-device.c
+index d34090036..be8f53f0a 100644
+--- a/src/wayland/meta-wayland-data-device.c
++++ b/src/wayland/meta-wayland-data-device.c
+@@ -25,7 +25,7 @@
+ #include "config.h"
+ 
+ #include "wayland/meta-wayland-data-device.h"
+-#include "wayland/meta-wayland-data-device-private.h"
++#include "wayland/meta-wayland-data-source-primary.h"
+ 
+ #include <gio/gunixoutputstream.h>
+ #include <glib-unix.h>
+@@ -63,20 +63,9 @@ struct _MetaWaylandDataOffer
+   MetaSelectionType selection_type;
+ };
+ 
+-typedef struct _MetaWaylandDataSourcePrimary
+-{
+-  MetaWaylandDataSource parent;
+-} MetaWaylandDataSourcePrimary;
+-
+-G_DEFINE_TYPE (MetaWaylandDataSourcePrimary, meta_wayland_data_source_primary,
+-               META_TYPE_WAYLAND_DATA_SOURCE);
+-
+ static void unset_selection_source (MetaWaylandDataDevice *data_device,
+                                     MetaSelectionType      selection_type);
+ 
+-static MetaWaylandDataSource *
+-meta_wayland_data_source_primary_new (struct wl_resource *resource);
+-
+ static void
+ drag_grab_data_source_destroyed (gpointer data, GObject *where_the_object_was);
+ 
+@@ -428,22 +417,6 @@ create_and_send_dnd_offer (MetaWaylandDataSource *source,
+   return offer->resource;
+ }
+ 
+-static void
+-primary_source_offer (struct wl_client   *client,
+-                      struct wl_resource *resource,
+-                      const char         *type)
+-{
+-  MetaWaylandDataSource *source = wl_resource_get_user_data (resource);
+-
+-  if (!meta_wayland_data_source_add_mime_type (source, type))
+-    wl_resource_post_no_memory (resource);
+-}
+-
+-static struct gtk_primary_selection_source_interface primary_source_interface = {
+-  primary_source_offer,
+-  default_destructor,
+-};
+-
+ struct _MetaWaylandDragGrab {
+   MetaWaylandPointerGrab  generic;
+ 
+@@ -1052,41 +1025,6 @@ selection_data_source_destroyed (gpointer data, GObject *object_was_here)
+   unset_selection_source (data_device, META_SELECTION_CLIPBOARD);
+ }
+ 
+-static void
+-meta_wayland_data_source_primary_send (MetaWaylandDataSource *source,
+-                                       const gchar           *mime_type,
+-                                       gint                   fd)
+-{
+-  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
+-
+-  gtk_primary_selection_source_send_send (resource, mime_type, fd);
+-  close (fd);
+-}
+-
+-static void
+-meta_wayland_data_source_primary_cancel (MetaWaylandDataSource *source)
+-{
+-  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
+-
+-  if (resource)
+-    gtk_primary_selection_source_send_cancelled (resource);
+-}
+-
+-static void
+-meta_wayland_data_source_primary_init (MetaWaylandDataSourcePrimary *source_primary)
+-{
+-}
+-
+-static void
+-meta_wayland_data_source_primary_class_init (MetaWaylandDataSourcePrimaryClass *klass)
+-{
+-  MetaWaylandDataSourceClass *data_source_class =
+-    META_WAYLAND_DATA_SOURCE_CLASS (klass);
+-
+-  data_source_class->send = meta_wayland_data_source_primary_send;
+-  data_source_class->cancel = meta_wayland_data_source_primary_cancel;
+-}
+-
+ static void
+ meta_wayland_drag_dest_focus_in (MetaWaylandDataDevice *data_device,
+                                  MetaWaylandSurface    *surface,
+@@ -1478,15 +1416,6 @@ static const struct wl_data_device_manager_interface manager_interface = {
+   get_data_device
+ };
+ 
+-static void
+-destroy_primary_source (struct wl_resource *resource)
+-{
+-  MetaWaylandDataSource *source = wl_resource_get_user_data (resource);
+-
+-  meta_wayland_data_source_set_resource (source, NULL);
+-  g_object_unref (source);
+-}
+-
+ static void
+ primary_device_manager_create_source (struct wl_client   *client,
+                                       struct wl_resource *manager_resource,
+@@ -1683,19 +1612,6 @@ meta_wayland_data_device_get_current_grab (MetaWaylandDataDevice *data_device)
+   return data_device->current_grab;
+ }
+ 
+-static MetaWaylandDataSource *
+-meta_wayland_data_source_primary_new (struct wl_resource *resource)
+-{
+-  MetaWaylandDataSource *source_primary =
+-    g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY, NULL);
+-
+-  meta_wayland_data_source_set_resource (source_primary, resource);
+-  wl_resource_set_implementation (resource, &primary_source_interface,
+-                                  source_primary, destroy_primary_source);
+-
+-  return source_primary;
+-}
+-
+ void
+ meta_wayland_data_device_unset_dnd_selection (MetaWaylandDataDevice *data_device)
+ {
+diff --git a/src/wayland/meta-wayland-data-source-primary.c b/src/wayland/meta-wayland-data-source-primary.c
+new file mode 100644
+index 000000000..3d088d63a
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-source-primary.c
+@@ -0,0 +1,117 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#include "config.h"
++
++#include <unistd.h>
++
++#include "gtk-primary-selection-server-protocol.h"
++#include "wayland/meta-wayland-data-source-primary.h"
++
++typedef struct _MetaWaylandDataSourcePrimary
++{
++  MetaWaylandDataSource parent;
++} MetaWaylandDataSourcePrimary;
++
++G_DEFINE_TYPE (MetaWaylandDataSourcePrimary, meta_wayland_data_source_primary,
++               META_TYPE_WAYLAND_DATA_SOURCE);
++
++static void
++primary_source_offer (struct wl_client   *client,
++                      struct wl_resource *resource,
++                      const char         *type)
++{
++  MetaWaylandDataSource *source = wl_resource_get_user_data (resource);
++
++  if (!meta_wayland_data_source_add_mime_type (source, type))
++    wl_resource_post_no_memory (resource);
++}
++
++static void
++primary_source_destroy (struct wl_client   *client,
++                        struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static struct gtk_primary_selection_source_interface primary_source_interface = {
++  primary_source_offer,
++  primary_source_destroy,
++};
++
++static void
++destroy_primary_source (struct wl_resource *resource)
++{
++  MetaWaylandDataSource *source = wl_resource_get_user_data (resource);
++
++  meta_wayland_data_source_set_resource (source, NULL);
++  g_object_unref (source);
++}
++
++static void
++meta_wayland_data_source_primary_send (MetaWaylandDataSource *source,
++                                       const gchar           *mime_type,
++                                       gint                   fd)
++{
++  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
++
++  gtk_primary_selection_source_send_send (resource, mime_type, fd);
++  close (fd);
++}
++
++static void
++meta_wayland_data_source_primary_cancel (MetaWaylandDataSource *source)
++{
++  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
++
++  if (resource)
++    gtk_primary_selection_source_send_cancelled (resource);
++}
++
++static void
++meta_wayland_data_source_primary_init (MetaWaylandDataSourcePrimary *source_primary)
++{
++}
++
++static void
++meta_wayland_data_source_primary_class_init (MetaWaylandDataSourcePrimaryClass *klass)
++{
++  MetaWaylandDataSourceClass *data_source_class =
++    META_WAYLAND_DATA_SOURCE_CLASS (klass);
++
++  data_source_class->send = meta_wayland_data_source_primary_send;
++  data_source_class->cancel = meta_wayland_data_source_primary_cancel;
++}
++
++MetaWaylandDataSource *
++meta_wayland_data_source_primary_new (struct wl_resource *resource)
++{
++  MetaWaylandDataSource *source_primary =
++    g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY, NULL);
++
++  meta_wayland_data_source_set_resource (source_primary, resource);
++  wl_resource_set_implementation (resource, &primary_source_interface,
++                                  source_primary, destroy_primary_source);
++
++  return source_primary;
++}
+diff --git a/src/wayland/meta-wayland-data-source-primary.h b/src/wayland/meta-wayland-data-source-primary.h
+new file mode 100644
+index 000000000..c6dd61bdb
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-source-primary.h
+@@ -0,0 +1,37 @@
++/*
++ * Copyright © 2011 Kristian Høgsberg
++ *             2020 Red Hat Inc.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#ifndef META_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY_H
++#define META_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY_H
++
++#include "meta-wayland-data-source.h"
++
++#define META_TYPE_WAYLAND_DATA_SOURCE_PRIMARY (meta_wayland_data_source_primary_get_type ())
++G_DECLARE_FINAL_TYPE (MetaWaylandDataSourcePrimary,
++                      meta_wayland_data_source_primary,
++                      META, WAYLAND_DATA_SOURCE_PRIMARY,
++                      MetaWaylandDataSource);
++
++MetaWaylandDataSource * meta_wayland_data_source_primary_new (struct wl_resource *resource);
++
++#endif /* META_WAYLAND_DATA_SOURCE_PRIMARY_LEGACY_H */
+-- 
+2.26.2
+

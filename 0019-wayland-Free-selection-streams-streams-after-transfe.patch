@@ -1,0 +1,68 @@
+From 70072c39dd1bebebbad3b82c13a6ebd5782a21f1 Mon Sep 17 00:00:00 2001
+From: Sebastian Keller <skeller@gnome.org>
+Date: Sun, 7 Jun 2020 15:11:35 +0200
+Subject: [PATCH 19/25] wayland: Free selection streams streams after transfer
+
+They were only being closed but never freed.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1293
+
+(cherry picked from commit dd32ff018afd6dea7f865d8ec194a8e2c514b5de)
+---
+ src/wayland/meta-wayland-data-offer-primary-legacy.c | 1 +
+ src/wayland/meta-wayland-data-offer-primary.c        | 1 +
+ src/wayland/meta-wayland-data-offer.c                | 1 +
+ src/wayland/meta-xwayland-dnd.c                      | 1 +
+ 4 files changed, 4 insertions(+)
+
+diff --git a/src/wayland/meta-wayland-data-offer-primary-legacy.c b/src/wayland/meta-wayland-data-offer-primary-legacy.c
+index ae55a9edc..5fe9523d3 100644
+--- a/src/wayland/meta-wayland-data-offer-primary-legacy.c
++++ b/src/wayland/meta-wayland-data-offer-primary-legacy.c
+@@ -51,6 +51,7 @@ transfer_cb (MetaSelection *selection,
+     }
+ 
+   g_output_stream_close (stream, NULL, NULL);
++  g_object_unref (stream);
+ }
+ 
+ static void
+diff --git a/src/wayland/meta-wayland-data-offer-primary.c b/src/wayland/meta-wayland-data-offer-primary.c
+index 98b7b0910..a2a4dfe80 100644
+--- a/src/wayland/meta-wayland-data-offer-primary.c
++++ b/src/wayland/meta-wayland-data-offer-primary.c
+@@ -51,6 +51,7 @@ transfer_cb (MetaSelection *selection,
+     }
+ 
+   g_output_stream_close (stream, NULL, NULL);
++  g_object_unref (stream);
+ }
+ 
+ static void
+diff --git a/src/wayland/meta-wayland-data-offer.c b/src/wayland/meta-wayland-data-offer.c
+index 800d55144..fa14fae1a 100644
+--- a/src/wayland/meta-wayland-data-offer.c
++++ b/src/wayland/meta-wayland-data-offer.c
+@@ -77,6 +77,7 @@ transfer_cb (MetaSelection *selection,
+     }
+ 
+   g_output_stream_close (stream, NULL, NULL);
++  g_object_unref (stream);
+ }
+ 
+ static void
+diff --git a/src/wayland/meta-xwayland-dnd.c b/src/wayland/meta-xwayland-dnd.c
+index 5e9d8f8b3..cd0f0d3ea 100644
+--- a/src/wayland/meta-xwayland-dnd.c
++++ b/src/wayland/meta-xwayland-dnd.c
+@@ -367,6 +367,7 @@ transfer_cb (MetaSelection *selection,
+     }
+ 
+   g_output_stream_close (stream, NULL, NULL);
++  g_object_unref (stream);
+ }
+ 
+ static void
+-- 
+2.26.2
+

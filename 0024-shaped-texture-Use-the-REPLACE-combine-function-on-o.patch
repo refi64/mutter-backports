@@ -1,0 +1,54 @@
+From 3a70ba7ae23489cca6dd12e6868c6e734155b974 Mon Sep 17 00:00:00 2001
+From: Daniel van Vugt <daniel.van.vugt@canonical.com>
+Date: Thu, 25 Jun 2020 19:00:29 +0800
+Subject: [PATCH 24/25] shaped-texture: Use the REPLACE combine function on
+ opaque areas
+
+We were setting the pipeline colour to all white (1.0, 1.0, 1.0, 1.0)
+and so the default layer combine function multiplied each pixel
+(R, G, B, A) by all ones. Obviously multiplying by one four times per
+pixel is a waste of effort so we remove the colour setting *and* set
+the layer combine function to a trivial shader that will ignore whatever
+the current pipeline colour is set to. So now we do **zero** multiplies
+per pixel.
+
+On an i7-7700 at UHD 3840x2160 this results in 5% faster render times
+and 10% lower power usage (says intel_gpu_top). The benefit is probably
+much higher for virtual machines though, as they're no longer being
+asked to do CPU-based math on every pixel of a window.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1331
+
+(cherry picked from commit e5542c3210229d944f66c030dc26fe4e9d010607)
+---
+ src/compositor/meta-shaped-texture.c | 9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+diff --git a/src/compositor/meta-shaped-texture.c b/src/compositor/meta-shaped-texture.c
+index 32abfdf96..ec1faf9fc 100644
+--- a/src/compositor/meta-shaped-texture.c
++++ b/src/compositor/meta-shaped-texture.c
+@@ -403,17 +403,14 @@ get_unblended_pipeline (MetaShapedTexture *stex,
+                         CoglContext       *ctx)
+ {
+   CoglPipeline *pipeline;
+-  CoglColor color;
+ 
+   if (stex->unblended_pipeline)
+     return stex->unblended_pipeline;
+ 
+   pipeline = cogl_pipeline_copy (get_base_pipeline (stex, ctx));
+-  cogl_color_init_from_4ub (&color, 255, 255, 255, 255);
+-  cogl_pipeline_set_blend (pipeline,
+-                           "RGBA = ADD (SRC_COLOR, 0)",
+-                           NULL);
+-  cogl_pipeline_set_color (pipeline, &color);
++  cogl_pipeline_set_layer_combine (pipeline, 0,
++                                   "RGBA = REPLACE (TEXTURE)",
++                                   NULL);
+ 
+   stex->unblended_pipeline = pipeline;
+ 
+-- 
+2.26.2
+

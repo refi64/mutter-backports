@@ -1,0 +1,27 @@
+From 5c7b5ef0d9ef99dbe548e9409587dad1efd9b95f Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Thu, 9 Apr 2020 17:53:25 +0200
+Subject: [PATCH 11/25] wayland: Drop unused struct variable
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1193
+
+(cherry picked from commit b7366b5b534cbea38fed58ac435f848111924713)
+---
+ src/wayland/meta-wayland-data-device.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/wayland/meta-wayland-data-device.h b/src/wayland/meta-wayland-data-device.h
+index 24591a672..eb2ff6fd2 100644
+--- a/src/wayland/meta-wayland-data-device.h
++++ b/src/wayland/meta-wayland-data-device.h
+@@ -40,7 +40,6 @@ struct _MetaWaylandDataDevice
+   uint32_t selection_serial;
+   MetaWaylandDataSource *selection_data_source;
+   MetaWaylandDataSource *dnd_data_source;
+-  struct wl_listener selection_data_source_listener;
+   struct wl_list resource_list;
+   MetaWaylandDragGrab *current_grab;
+   struct wl_client *focus_client;
+-- 
+2.26.2
+

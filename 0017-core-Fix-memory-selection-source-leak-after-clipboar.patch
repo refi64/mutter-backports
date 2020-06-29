@@ -1,0 +1,34 @@
+From ef848f10d1e220002497ea7c5881bd995b60d7fb Mon Sep 17 00:00:00 2001
+From: Sebastian Keller <skeller@gnome.org>
+Date: Fri, 5 Jun 2020 19:18:43 +0200
+Subject: [PATCH 17/25] core: Fix memory selection source leak after clipboard
+ owner disappears
+
+When an app disappears after some data from it has been copied to the
+clipboard, the owner of the clipboard selection becomes a new memory
+selection source. The initial reference this new selection source is
+never unref'ed, which leads to this being leaked on the next clipboard
+selection owner change.
+
+https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1293
+
+(cherry picked from commit a031ac067e4b275d1de3ae7c018711be187fbb6b)
+---
+ src/core/meta-clipboard-manager.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/core/meta-clipboard-manager.c b/src/core/meta-clipboard-manager.c
+index b85d87fd0..69b00d85a 100644
+--- a/src/core/meta-clipboard-manager.c
++++ b/src/core/meta-clipboard-manager.c
+@@ -152,6 +152,7 @@ owner_changed_cb (MetaSelection       *selection,
+                                                     display->saved_clipboard);
+       g_set_object (&display->selection_source, new_owner);
+       meta_selection_set_owner (selection, selection_type, new_owner);
++      g_object_unref (new_owner);
+     }
+ }
+ 
+-- 
+2.26.2
+
